@@ -60,6 +60,10 @@ describe('10K contacts - search only (index pre-built)', () => {
       seaq(ManyContacts, queries.short, { keys: ['givenName', 'familyName'] });
     });
 
+    bench('seaq (cache)', () => {
+      seaq(ManyContacts, queries.short, { keys: ['givenName', 'familyName'], cache: true });
+    });
+
     bench('fuse.js', () => {
       fuseIndex.search(queries.short);
     });
@@ -86,6 +90,10 @@ describe('10K contacts - search only (index pre-built)', () => {
       seaq(ManyContacts, queries.medium, { keys: ['givenName', 'familyName'] });
     });
 
+    bench('seaq (cache)', () => {
+      seaq(ManyContacts, queries.medium, { keys: ['givenName', 'familyName'], cache: true });
+    });
+
     bench('fuse.js', () => {
       fuseIndex.search(queries.medium);
     });
@@ -110,6 +118,10 @@ describe('10K contacts - search only (index pre-built)', () => {
   describe('long query "natasha okeefe"', () => {
     bench('seaq', () => {
       seaq(ManyContacts, queries.long, { keys: ['givenName', 'familyName'] });
+    });
+
+    bench('seaq (cache)', () => {
+      seaq(ManyContacts, queries.long, { keys: ['givenName', 'familyName'], cache: true });
     });
 
     bench('fuse.js', () => {
@@ -141,6 +153,12 @@ describe('10K contacts - simulated typing (index pre-built)', () => {
   bench('seaq', () => {
     for (const query of keystrokes) {
       seaq(ManyContacts, query, { keys: ['givenName', 'familyName'] });
+    }
+  });
+
+  bench('seaq (cache)', () => {
+    for (const query of keystrokes) {
+      seaq(ManyContacts, query, { keys: ['givenName', 'familyName'], cache: true });
     }
   });
 
@@ -179,6 +197,11 @@ describe('10K contacts - simulated typing (index pre-built)', () => {
 describe('10K contacts - cold start (build + search)', () => {
   bench('seaq', () => {
     seaq(ManyContacts, queries.medium, { keys: ['givenName', 'familyName'] });
+  });
+
+  bench('seaq (cache, fresh array)', () => {
+    // A new array each iteration, so the index is built every time
+    seaq(ManyContacts.slice(), queries.medium, { keys: ['givenName', 'familyName'], cache: true });
   });
 
   bench('fuse.js', () => {

@@ -105,15 +105,21 @@ Match positions are only computed for the final (post-limit) results, so `includ
 
 ### Repeated searches (typeahead)
 
-By default every call re-reads the list from scratch -- that's what makes seaq great for dynamic data. If the same item objects are searched repeatedly (typing in a search box over a static list), set `cache: true` to reuse the prepared per-item strings across calls:
+By default every call re-reads the list from scratch -- that's what makes seaq great for dynamic data. If the same list is searched repeatedly (typing in a search box over a static list), set `cache: true`:
 
 ```typescript
 seaq(contacts, query, { keys: ['name', 'email'], cache: true });
 ```
 
-The cache is keyed on object identity in a `WeakMap`, so entries are garbage-collected with your items and never leak. It assumes items are immutable -- if you change an item, replace the object rather than mutating it in place.
+With `cache: true`, seaq builds an index for the list on the first search and reuses it on later calls with the same array:
 
-**The trade-off:** caching skips per-search string building (joining, lowercasing) for every item, which improves the *typical* search significantly -- but the allocation work it removes from every keystroke becomes occasional garbage-collection pauses instead, so individual search times vary more. In short: better median and throughput, slightly fatter tail. Prefer it when lists are large or keys are nested/numerous; for small lists of flat fields the steady uncached path is already fast and more predictable. When in doubt, measure on your own data.
+- **Only promising items get scored.** The index records which letters each item contains. Strict searches (`fuzziness: 0`) only score items that contain every letter in the query. Fuzzy searches skip items whose missing letters cap their score below what's already in the top results.
+- **Typing gets cheaper.** In strict mode, when the query extends the previous one ("nat" → "nata"), only the previous matches are re-checked.
+- **Results are identical** to an uncached search.
+
+On 10K contacts this makes a default search about 8x faster (1.7 ms → 0.2 ms) and a strict search about 20x faster (1.1 ms → 0.05 ms). The first search on a list costs about the same as an uncached search.
+
+The index is keyed on the array in a `WeakMap`, so it's garbage-collected with the list. Adding, removing or replacing items is detected automatically. Mutating an item in place is not: replace the object instead. Building a new array each render (e.g. `items.filter(...)`) means a new index each time, which costs about as much as an uncached search. In `fieldMode: 'separate'`, the cache stores prepared strings per item instead of using the list index.
 
 ## API
 
@@ -134,7 +140,7 @@ Returns a new array of matching items sorted by relevance (highest score first).
 | `limit` | `number` | `10` | Maximum results to return. Uses a min-heap internally for O(n log k) selection, faster than full-sorting then slicing. Set to `Infinity` to return all matches; `0` or negative returns `[]`. |
 | `threshold` | `number` | `0.3` | Relative score cutoff. Results scoring below `topScore * threshold` are dropped. `0` = no filtering (return everything with score > 0). `1` = only near-perfect matches. Note: higher = stricter -- the opposite polarity of Fuse.js's `threshold`. |
 | `includeMatches` | `boolean` | `false` | When `true`, returns `SeaqResult<T>` objects with per-field match metadata (character positions, matched value, per-match score) instead of plain items. |
-| `cache` | `boolean` | `false` | When `true`, caches prepared per-item strings (keyed on object identity via `WeakMap`) so repeated searches over the same objects skip field extraction and lowercasing. Items must be treated as immutable. |
+| `cache` | `boolean` | `false` | When `true`, builds a search index for the list on first use and reuses it while the same array is searched again -- much faster repeated searches with identical results. Items must not be mutated in place (replace them instead). See [Repeated searches](#repeated-searches-typeahead). |
 
 ### Types
 

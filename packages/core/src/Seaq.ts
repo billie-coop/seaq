@@ -1,7 +1,10 @@
 /**
  * Seaq is a Fuzzy searching utility function.
  */
+import { charMask, scoreIndexed } from './listIndex';
 import { string_score } from './string_score';
+
+export { charMask };
 
 /**
  * Match metadata for a single scored field.
@@ -108,16 +111,19 @@ export interface SeaqOptions<T> {
    */
   includeMatches?: boolean;
   /**
-   * When `true`, caches the prepared search strings (joined/lowercased
-   * values and character masks) per item, keyed on object identity via a
-   * `WeakMap`. Subsequent searches over the same item objects skip all
-   * field extraction and lowercasing — a large win for repeated searches
-   * (e.g. typeahead) over a static list.
+   * When `true`, builds a search index for the list (keyed on the array via
+   * a `WeakMap`) and reuses it while the same array is searched again —
+   * a large win for repeated searches (e.g. typeahead) over a static list.
+   * Results are identical to an uncached search.
    *
-   * Only applies when `keys` are provided and items are objects. The cache
-   * assumes items are immutable: if you mutate an item in place, its cached
-   * entry goes stale (replace the object instead). Entries are garbage
-   * collected with the items themselves.
+   * The index records which character classes each item contains, so strict
+   * searches only score items containing every query character, and fuzzy
+   * searches skip items whose missing characters cap their score below the
+   * current top results. Added, removed or replaced items are detected; an
+   * item mutated in place is not (replace the object instead).
+   *
+   * In `fieldMode: 'separate'`, prepared strings are cached per item
+   * (keyed on object identity) instead.
    */
   cache?: boolean;
 }
@@ -194,16 +200,28 @@ export function seaq<T>(
   // Split dot-notation paths once per call instead of per segment per item
   const keyPaths = keys?.map((k) => k.split('.'));
 
-  const { items: scored, maxScore } = scoreItems(
-    list,
-    query,
-    keys,
-    keyPaths,
-    fuzziness,
-    fieldMode,
-    includeMatches,
-    useCache,
-  );
+  // cache + joined mode (or a keyless list) uses the list-level index; the
+  // separate-mode cache stays per item
+  const indexPaths = useCache && (!keys || fieldMode === 'joined') ? (keyPaths ?? null) : undefined;
+  const { items: scored, maxScore } =
+    indexPaths !== undefined
+      ? scoreIndexed(
+          list,
+          query,
+          fuzziness,
+          limit,
+          threshold,
+          keys ? keys.join('\u0000') : '',
+          indexPaths
+            ? (item) => buildJoinedString(item, indexPaths)
+            : (item) =>
+                typeof item === 'string'
+                  ? item
+                  : typeof item === 'number'
+                    ? String(item)
+                    : JSON.stringify(item),
+        )
+      : scoreItems(list, query, keys, keyPaths, fuzziness, fieldMode, includeMatches, useCache);
 
   const cutoff = maxScore * threshold;
 
@@ -229,6 +247,10 @@ export function seaq<T>(
  * Get top N items by score using a min-heap for efficiency.
  * O(n log k) instead of O(n log n) for full sort.
  * Items scoring below `cutoff` are skipped without entering the heap.
+ *
+ * Ties keep list order (like the stable sort used when there is no limit),
+ * so the result doesn't depend on which lower-scoring items passed through
+ * the heap along the way.
  */
 function getTopN<T>(
   items: Array<MetaDataItem<T>>,
@@ -241,39 +263,48 @@ function getTopN<T>(
     return eligible.sort((a, b) => b.score - a.score);
   }
 
-  // Use a min-heap to track top N items
-  // The heap stores the N highest-scoring items, with the minimum at the root
-  const heap: Array<MetaDataItem<T>> = [];
+  // Min-heap of positions in `items`, worst at the root: lower score is
+  // worse, and on equal scores the later position is worse
+  const heap: number[] = [];
+  // biome-ignore lint/style/noNonNullAssertion: heap only holds valid positions
+  const score = (pos: number) => items[pos]!.score;
+  const worse = (a: number, b: number) => {
+    const sa = score(a);
+    const sb = score(b);
+    return sa < sb || (sa === sb && a > b);
+  };
 
-  for (const item of items) {
-    if (item.score < cutoff) continue;
+  for (let i = 0; i < items.length; i++) {
+    const s = score(i);
+    if (s < cutoff) continue;
     if (heap.length < n) {
-      // Heap not full yet, add item
-      heapPush(heap, item);
-      // biome-ignore lint/style/noNonNullAssertion: heap[0] is in-bounds (heap.length === n > 0); avoid runtime guard in hot path
-    } else if (item.score > heap[0]!.score) {
-      // Item scores higher than our current minimum - replace it
-      heapReplace(heap, item);
+      heapPush(heap, i, worse);
+      // biome-ignore lint/style/noNonNullAssertion: heap is full (length === n > 0)
+    } else if (s > score(heap[0]!)) {
+      // Later positions only win on a strictly higher score
+      heapReplace(heap, i, worse);
     }
-    // Otherwise item scores lower than all top N, skip it
   }
 
-  // Extract items from heap in sorted order (highest first)
+  // Pop worst-first, then reverse for best-first
   const result: Array<MetaDataItem<T>> = [];
   while (heap.length > 0) {
-    result.push(heapPop(heap));
+    // biome-ignore lint/style/noNonNullAssertion: heapPop returns a valid position
+    result.push(items[heapPop(heap, worse)]!);
   }
   return result.reverse();
 }
 
-// Min-heap operations (smallest score at root)
-function heapPush<T>(heap: Array<MetaDataItem<T>>, item: MetaDataItem<T>): void {
-  heap.push(item);
+// Min-heap operations over item positions (worst at root)
+type Worse = (a: number, b: number) => boolean;
+
+function heapPush(heap: number[], pos: number, worse: Worse): void {
+  heap.push(pos);
   let i = heap.length - 1;
   while (i > 0) {
-    const parent = Math.floor((i - 1) / 2);
-    // biome-ignore lint/style/noNonNullAssertion: heap[i] and heap[parent] in-bounds (i < heap.length, parent = floor((i-1)/2) >= 0); hot path
-    if (heap[i]!.score >= heap[parent]!.score) break;
+    const parent = (i - 1) >> 1;
+    // biome-ignore lint/style/noNonNullAssertion: i and parent in-bounds; hot path
+    if (!worse(heap[i]!, heap[parent]!)) break;
     // biome-ignore lint/style/noNonNullAssertion: same in-bounds guarantee as above
     const tmp = heap[i]!;
     // biome-ignore lint/style/noNonNullAssertion: same in-bounds guarantee as above
@@ -283,38 +314,34 @@ function heapPush<T>(heap: Array<MetaDataItem<T>>, item: MetaDataItem<T>): void 
   }
 }
 
-function heapPop<T>(heap: Array<MetaDataItem<T>>): MetaDataItem<T> {
+function heapPop(heap: number[], worse: Worse): number {
   // biome-ignore lint/style/noNonNullAssertion: caller guarantees heap.length > 0
   const result = heap[0]!;
   // biome-ignore lint/style/noNonNullAssertion: same caller guarantee — pop() returns defined when heap is non-empty
   const last = heap.pop()!;
   if (heap.length > 0) {
     heap[0] = last;
-    heapifyDown(heap, 0);
+    heapifyDown(heap, 0, worse);
   }
   return result;
 }
 
-function heapReplace<T>(heap: Array<MetaDataItem<T>>, item: MetaDataItem<T>): void {
-  heap[0] = item;
-  heapifyDown(heap, 0);
+function heapReplace(heap: number[], pos: number, worse: Worse): void {
+  heap[0] = pos;
+  heapifyDown(heap, 0, worse);
 }
 
-function heapifyDown<T>(heap: Array<MetaDataItem<T>>, i: number): void {
+function heapifyDown(heap: number[], i: number, worse: Worse): void {
   const len = heap.length;
   while (true) {
     const left = 2 * i + 1;
     const right = 2 * i + 2;
     let smallest = i;
 
-    // biome-ignore lint/style/noNonNullAssertion: left < len guard; smallest starts as in-bounds i; hot path
-    if (left < len && heap[left]!.score < heap[smallest]!.score) {
-      smallest = left;
-    }
-    // biome-ignore lint/style/noNonNullAssertion: right < len guard; smallest is in-bounds; hot path
-    if (right < len && heap[right]!.score < heap[smallest]!.score) {
-      smallest = right;
-    }
+    // biome-ignore lint/style/noNonNullAssertion: left < len guard; smallest in-bounds; hot path
+    if (left < len && worse(heap[left]!, heap[smallest]!)) smallest = left;
+    // biome-ignore lint/style/noNonNullAssertion: right < len guard; smallest in-bounds; hot path
+    if (right < len && worse(heap[right]!, heap[smallest]!)) smallest = right;
     if (smallest === i) break;
 
     // biome-ignore lint/style/noNonNullAssertion: i and smallest both in-bounds by guards above
@@ -575,7 +602,7 @@ function scoreItems<T>(
   const queryMask = charMask(lowerQuery);
   const tokenMasks = lowerTokens?.map((t) => charMask(t));
 
-  const cacheSig = useCache && keys ? `${fieldMode} ${keys.join(' ')}` : null;
+  const cacheSig = useCache && keys ? `${fieldMode}\u0000${keys.join('\u0000')}` : null;
 
   const result: Array<MetaDataItem<T>> = [];
   let maxScore = 0;
@@ -815,30 +842,6 @@ function hasSubsequence(value: string, token: string): boolean {
     if (value[vi] === token[ti]) ti++;
   }
   return ti === token.length;
-}
-
-/**
- * Build a bitmask of the character classes present in a string:
- * - bits 0-25: a-z presence
- * - bits 27-31: digit presence, bucketed in pairs (0-1, 2-3, 4-5, 6-7, 8-9)
- *   so numeric queries (phone numbers, ids) get real pre-filter selectivity
- * - bit 26: everything else
- *
- * Enables O(1) character-set containment checks before expensive scoring.
- */
-export function charMask(lower: string): number {
-  let mask = 0;
-  for (let i = 0; i < lower.length; i++) {
-    const code = lower.charCodeAt(i);
-    if (code >= 97 && code <= 122) {
-      mask |= 1 << (code - 97);
-    } else if (code >= 48 && code <= 57) {
-      mask |= 1 << (27 + ((code - 48) >> 1));
-    } else {
-      mask |= 1 << 26;
-    }
-  }
-  return mask;
 }
 
 type WinDescriptor =
