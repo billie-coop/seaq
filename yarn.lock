@@ -1157,6 +1157,7 @@ __metadata:
     "@types/react-dom": "npm:^19.0.0"
     "@vitejs/plugin-react": "npm:^4.0.0"
     fuse.js: "npm:^7.1.0"
+    fuzzysort: "npm:^4"
     lunr: "npm:^2.3.9"
     marked: "npm:^18.0.5"
     minisearch: "npm:^7.2.0"
@@ -2109,6 +2110,13 @@ __metadata:
   version: 7.1.0
   resolution: "fuse.js@npm:7.1.0"
   checksum: 10c0/c0d1b1d192a4bdf3eade897453ddd28aff96b70bf3e49161a45880f9845ebaee97265595db633776700a5bcf8942223c752754a848d70c508c3c9fd997faad1e
+  languageName: node
+  linkType: hard
+
+"fuzzysort@npm:^4":
+  version: 4.0.2
+  resolution: "fuzzysort@npm:4.0.2"
+  checksum: 10c0/418b59d2ba8d84127e57b6ef7873addc0cb7fdf7610a58e8df4f2a42c1fe552811e51f23be350d81a0560c2dfe563500cf0d75161682c063cd798f7b36334827
   languageName: node
   linkType: hard
 
@@ -3069,6 +3077,7 @@ __metadata:
     "@seaq/test-data": "workspace:*"
     "@types/lunr": "npm:^2.3.7"
     fuse.js: "npm:^7.1.0"
+    fuzzysort: "npm:^4"
     lunr: "npm:^2.3.9"
     minisearch: "npm:^7.2.0"
     tsup: "npm:^8.5.1"

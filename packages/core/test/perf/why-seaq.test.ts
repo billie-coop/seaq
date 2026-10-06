@@ -10,6 +10,7 @@
 import uFuzzy from '@leeoniya/ufuzzy';
 import type { Contact } from '@seaq/test-data';
 import Fuse from 'fuse.js';
+import fuzzysort from 'fuzzysort';
 import lunr from 'lunr';
 import MiniSearch from 'minisearch';
 import { describe, expect, test } from 'vitest';
@@ -65,6 +66,13 @@ function printTable(title: string, rows: Row[]) {
 }
 
 // ── Shared data ──────────────────────────────────────────────────────────
+
+// fuzzysort caches prepared targets across go() calls. Cold-start timings call
+// this first so every sample pays the prep cost, like an index build would.
+function fuzzysortCold<T>(fn: () => T): T {
+  fuzzysort.cleanup();
+  return fn();
+}
 
 // Flat haystacks for uFuzzy (it only searches string[])
 const contactHaystack = ManyContacts.map((c) => `${c.givenName} ${c.familyName}`);
@@ -127,7 +135,7 @@ describe('SCENARIO 1: Small list filtering (< 50 items)', () => {
     const queries = ['set', 'api', 'not', 'dev', 'bill'];
     const rows: Row[] = [];
 
-    for (const lib of ['seaq', 'fuse.js', 'minisearch', 'ufuzzy'] as const) {
+    for (const lib of ['seaq', 'fuzzysort', 'fuse.js', 'minisearch', 'ufuzzy'] as const) {
       let total = 0;
       let lastResults: string[] = [];
       for (const q of queries) {
@@ -135,6 +143,10 @@ describe('SCENARIO 1: Small list filtering (< 50 items)', () => {
           switch (lib) {
             case 'seaq':
               return sampled(() => seaq(menuItems, q));
+            case 'fuzzysort':
+              return sampled(() =>
+                fuzzysortCold(() => fuzzysort.go(q, menuItems).map((r) => r.target)),
+              );
             case 'fuse.js':
               return sampled(() => {
                 const fuse = new Fuse(menuItems);
@@ -174,6 +186,11 @@ describe('SCENARIO 1: Small list filtering (< 50 items)', () => {
 
     const { ms: seaqMs, result: seaqR } = sampled(() => seaq(files, 'btn'));
     rows.push({ lib: 'seaq', ms: seaqMs, count: seaqR.length, top3: seaqR.slice(0, 3) });
+
+    const { ms: fsMs, result: fsR } = sampled(() =>
+      fuzzysortCold(() => fuzzysort.go('btn', files).map((r) => r.target)),
+    );
+    rows.push({ lib: 'fuzzysort', ms: fsMs, count: fsR.length, top3: fsR.slice(0, 3) });
 
     const { ms: fuseMs, result: fuseR } = sampled(() => {
       const f = new Fuse(files);
@@ -233,6 +250,10 @@ describe('SCENARIO 2: Acronym matching', () => {
     const libs = [
       { name: 'seaq', search: (q: string) => seaq(techTerms, q) },
       {
+        name: 'fuzzysort',
+        search: (q: string) => fuzzysort.go(q, techTerms).map((r) => r.target),
+      },
+      {
         name: 'fuse.js',
         search: (q: string) => new Fuse(techTerms, { threshold: 0.6 }).search(q).map((r) => r.item),
       },
@@ -255,12 +276,8 @@ describe('SCENARIO 2: Acronym matching', () => {
     ];
 
     console.log('\n  Acronym Detection: query → expected #1 result');
-    console.log(
-      `  ${'Query'.padEnd(6)} ${'seaq'.padEnd(16)} ${'fuse.js'.padEnd(16)} ${'minisearch'.padEnd(16)} ${'ufuzzy'.padEnd(16)}`,
-    );
-    console.log(
-      `  ${'─'.repeat(6)} ${'─'.repeat(16)} ${'─'.repeat(16)} ${'─'.repeat(16)} ${'─'.repeat(16)}`,
-    );
+    console.log(`  ${'Query'.padEnd(6)} ${libs.map((l) => l.name.padEnd(16)).join(' ')}`);
+    console.log(`  ${'─'.repeat(6)} ${libs.map(() => '─'.repeat(16)).join(' ')}`);
 
     const scores: Record<string, number> = {};
 
@@ -302,6 +319,18 @@ describe('SCENARIO 3: Cold start (no index, data just arrived)', () => {
       ms: seaqMs,
       count: seaqR.length,
       top3: seaqR.slice(0, 3).map(contactName),
+    });
+
+    const { ms: fsMs, result: fsR } = sampled(() =>
+      fuzzysortCold(() =>
+        fuzzysort.go('nath', ManyContacts, { keys: ['givenName', 'familyName'] }),
+      ),
+    );
+    rows.push({
+      lib: 'fuzzysort',
+      ms: fsMs,
+      count: fsR.length,
+      top3: fsR.slice(0, 3).map((r) => contactName(r.obj)),
     });
 
     const { ms: fuseMs, result: fuseR } = sampled(() => {
@@ -378,6 +407,16 @@ describe('SCENARIO 3: Cold start (no index, data just arrived)', () => {
       ms: seaqMs,
       count: seaqR.length,
       top3: seaqR.slice(0, 3).map((c) => c.name),
+    });
+
+    const { ms: fsMs, result: fsR } = sampled(() =>
+      fuzzysortCold(() => fuzzysort.go('san', Cities, { keys: ['name', 'state'] })),
+    );
+    rows.push({
+      lib: 'fuzzysort',
+      ms: fsMs,
+      count: fsR.length,
+      top3: fsR.slice(0, 3).map((r) => r.obj.name),
     });
 
     const { ms: fuseMs, result: fuseR } = sampled(() => {
@@ -556,6 +595,14 @@ describe('SCENARIO 5: Nested object search (zero prep)', () => {
       `  fuse.js:    ${fuseR.map((r) => r.item.name).join(', ')} (${fuseR.length} results)`,
     );
 
+    // fuzzysort — dot paths work, but arrays need a getter
+    const fsR = fuzzysort.go('acme', crmContacts, {
+      keys: ['company.name', (c) => c.emails.map((e) => e.address).join(' ')],
+    });
+    console.log(
+      `  fuzzysort:  ${fsR.map((r) => r.obj.name).join(', ')} (${fsR.length} results) [array needs getter]`,
+    );
+
     // minisearch — must flatten first
     const flatCrm = crmContacts.map((c, id) => ({
       id,
@@ -604,6 +651,18 @@ describe('SCENARIO 6: Dynamic data (index = wasted work)', () => {
     rows.push({
       lib: 'seaq',
       ms: seaqMs / datasets.length,
+      count: datasets.length,
+      top3: ['(avg per search)'],
+    });
+
+    const { ms: fsMs } = sampled(() => {
+      for (const ds of datasets) {
+        fuzzysortCold(() => fuzzysort.go('john', ds, { keys: ['givenName', 'familyName'] }));
+      }
+    });
+    rows.push({
+      lib: 'fuzzysort',
+      ms: fsMs / datasets.length,
       count: datasets.length,
       top3: ['(avg per search)'],
     });
@@ -682,6 +741,8 @@ describe('SCENARIO 7: The tradeoff — repeated search on pre-indexed data', () 
     }
   });
 
+  const fsSnapshot = fuzzysort.snapshot(ManyContacts, { keys: ['givenName', 'familyName'] });
+
   const ufInst = new uFuzzy();
 
   test('single search on pre-indexed 10K contacts', () => {
@@ -695,6 +756,14 @@ describe('SCENARIO 7: The tradeoff — repeated search on pre-indexed data', () 
       ms: seaqMs,
       count: seaqR.length,
       top3: seaqR.slice(0, 3).map((c) => c.givenName),
+    });
+
+    const { ms: fsMs, result: fsR } = sampled(() => fuzzysort.go('nath', fsSnapshot));
+    rows.push({
+      lib: 'fuzzysort',
+      ms: fsMs,
+      count: fsR.length,
+      top3: fsR.slice(0, 3).map((r) => r.obj.givenName),
     });
 
     const { ms: fuseMs, result: fuseR } = sampled(() => fuseIdx.search('nath'));
@@ -746,6 +815,11 @@ describe('SCENARIO 7: The tradeoff — repeated search on pre-indexed data', () 
       for (const q of keystrokes) seaq(ManyContacts, q, { keys: ['givenName', 'familyName'] });
     });
     rows.push({ lib: 'seaq', ms: seaqMs, count: 7, top3: [`(${fmt(seaqMs / 7)}/keystroke)`] });
+
+    const { ms: fsMs } = sampled(() => {
+      for (const q of keystrokes) fuzzysort.go(q, fsSnapshot);
+    });
+    rows.push({ lib: 'fuzzysort', ms: fsMs, count: 7, top3: [`(${fmt(fsMs / 7)}/keystroke)`] });
 
     const { ms: fuseMs } = sampled(() => {
       for (const q of keystrokes) fuseIdx.search(q);

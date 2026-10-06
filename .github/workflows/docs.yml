@@ -2,7 +2,7 @@ name: Deploy docs
 
 on:
   push:
-    branches: [master]
+    branches: [main]
     paths:
       - 'packages/docs/**'
       - 'packages/core/**'

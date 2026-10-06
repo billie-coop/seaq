@@ -5,6 +5,7 @@ import {
   type EngineKey,
   type EngineToggle,
   type FuseConfig,
+  type FuzzysortConfig,
   type LunrConfig,
   type MiniSearchConfig,
   type SeaqConfig,
@@ -78,6 +79,21 @@ function fuseSnippet(query: string, keys: string[], config: FuseConfig): string 
     `})`,
     `fuse.search(${q(query)})`,
   ].join('\n');
+}
+
+function fuzzysortSnippet(query: string, keys: string[], config: FuzzysortConfig): string {
+  const opts: string[] = [];
+  if (config.threshold !== 0.5) opts.push(`threshold: ${config.threshold}`);
+  if (config.limit !== 10) opts.push(`limit: ${config.limit}`);
+  const optsStr = opts.length > 0 ? `, {\n  ${opts.join(',\n  ')}\n}` : '';
+  const snapshot =
+    keys.length > 0
+      ? `fuzzysort.snapshot(data, {\n  keys: [${keys.map(q).join(', ')}]\n})`
+      : `fuzzysort.snapshot(data)`;
+  const lines = [`const targets = ${snapshot}`];
+  if (config.preIndexed) lines.push(`// snapshot taken once, reused`);
+  lines.push(`fuzzysort.go(${q(query)}, targets${optsStr})`);
+  return lines.join('\n');
 }
 
 function miniSearchSnippet(
@@ -215,6 +231,8 @@ function codeSnippet(
       return seaqSnippet(dq, keys, config as SeaqConfig);
     case 'seaqv1':
       return seaqV1Snippet(dq, keys, config as SeaqV1Config);
+    case 'fuzzysort':
+      return fuzzysortSnippet(dq, keys, config as FuzzysortConfig);
     case 'fuse':
       return fuseSnippet(dq, keys, config as FuseConfig);
     case 'minisearch':
@@ -451,6 +469,48 @@ function FuseControls({
   );
 }
 
+function FuzzysortControls({
+  config,
+  onChange,
+}: {
+  config: FuzzysortConfig;
+  onChange: (p: Partial<FuzzysortConfig>) => void;
+}) {
+  return (
+    <>
+      <Select
+        label="Threshold"
+        hint="Minimum score. 1 = exact, 0.5 = good, 0 = any match."
+        value={config.threshold}
+        options={[
+          { value: '0', label: '0 (any match)' },
+          { value: '0.3', label: '0.3' },
+          { value: '0.5', label: '0.5 (default)' },
+          { value: '0.7', label: '0.7 (strict)' },
+        ]}
+        onChange={(v) => onChange({ threshold: Number(v) })}
+      />
+      <Select
+        label="Limit"
+        hint="Max results. 0 = unlimited (slower on big data)."
+        value={config.limit}
+        options={[
+          { value: '10', label: '10 (default)' },
+          { value: '100', label: '100' },
+          { value: '0', label: '0 (unlimited)' },
+        ]}
+        onChange={(v) => onChange({ limit: Number(v) })}
+      />
+      <Check
+        label="Pre-indexed"
+        hint="Reuse snapshot() across keystrokes."
+        checked={config.preIndexed}
+        onChange={(v) => onChange({ preIndexed: v })}
+      />
+    </>
+  );
+}
+
 function MiniSearchControls({
   config,
   onChange,
@@ -619,6 +679,13 @@ function ConfigControls({ engineKey, config, onConfigChange }: ResultsColumnProp
         <SeaqV1Controls
           config={config as SeaqV1Config}
           onChange={onConfigChange as (p: Partial<SeaqV1Config>) => void}
+        />
+      );
+    case 'fuzzysort':
+      return (
+        <FuzzysortControls
+          config={config as FuzzysortConfig}
+          onChange={onConfigChange as (p: Partial<FuzzysortConfig>) => void}
         />
       );
     case 'fuse':

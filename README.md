@@ -10,6 +10,8 @@ import { seaq } from 'seaq';
 seaq(contacts, 'john', { keys: ['name', 'email'] });
 ```
 
+**[Docs & live playground →](https://billie-coop.github.io/seaq/)**
+
 For installation, usage, and the full API see **[`packages/core/README.md`](./packages/core/README.md)** — that's also what ships on npm.
 
 ## Repo layout
@@ -20,7 +22,7 @@ This is a yarn workspaces monorepo.
 |---------|-------------|
 | [`packages/core`](./packages/core) | The published `seaq` library. |
 | [`packages/test-data`](./packages/test-data) | Shared fixtures (contacts, cities, books) consumed by tests and the docs site. Not published. |
-| [`packages/docs`](./packages/docs) | Docs site with an interactive playground comparing seaq against Fuse.js, MiniSearch, uFuzzy, and Lunr — including bring-your-own-JSON data. |
+| [`packages/docs`](./packages/docs) | Docs site with an interactive playground comparing seaq against fuzzysort, Fuse.js, MiniSearch, uFuzzy, and Lunr — including bring-your-own-JSON data. Live at [billie-coop.github.io/seaq](https://billie-coop.github.io/seaq/). |
 
 Other docs:
 
@@ -49,22 +51,13 @@ yarn bench:save     # save benchmark JSON keyed by commit short SHA
 
 ## Releasing
 
-Manual, run from a clean working tree:
+Releases publish from GitHub Actions via [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) — no npm token.
 
-```bash
-# 1. Bump version in root package.json and packages/core/package.json
-# 2. Commit the bump
-# 3. Inspect what will be published
-yarn release:pack
+1. In a PR, bump `version` in `packages/core/package.json` (and the root `package.json` to match). Run `yarn release:verify` and `yarn release:pack` to check what ships.
+2. Merge to `main`.
+3. Run the **Release** workflow (`.github/workflows/release.yml`) from `main`. Tick **dry-run** first if you want to check it.
 
-# 4. Publish
-yarn release:publish:next     # prereleases (rc, beta, alpha) -> npm 'next' tag
-yarn release:publish:latest   # stable releases -> npm 'latest' tag
-```
-
-`release:publish:*` runs `release:verify` first (ts-check + lint + test + build) and then `npm publish --access public --tag <tag>` from `packages/core`.
-
-A GitHub Actions release workflow (`.github/workflows/release.yml`) is also available via workflow_dispatch.
+The workflow publishes the committed version and never bumps it. It refuses to run if the tag `v<version>` or the npm version already exists. Prereleases (`x.y.z-rc.1`) go to the `next` dist-tag and stable versions to `latest`. Before publishing it strips `devDependencies`, which use yarn's `workspace:` protocol, from the package. Then it creates the GitHub release with generated notes.
 
 ## License
 

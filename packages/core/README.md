@@ -10,6 +10,8 @@ const results = seaq(contacts, 'john', { keys: ['name', 'email'] });
 
 Works the same whether your list has 20 items or 20,000 -- no refactoring needed.
 
+**[Docs & live playground →](https://billie-coop.github.io/seaq/)** Try seaq on your own JSON and compare it side by side with fuzzysort, Fuse.js, MiniSearch, uFuzzy, and Lunr.
+
 ## Install
 
 ```bash
@@ -153,18 +155,18 @@ interface SeaqMatch {
 
 ## Feature comparison
 
-| Feature | seaq | fuse.js | minisearch | ufuzzy | lunr |
-|---------|:----:|:-------:|:----------:|:------:|:----:|
-| Exact match | yes | yes | yes | yes | yes |
-| Fuzzy/typo tolerance | yes | yes | partial | yes | partial |
-| Partial/prefix match | yes | yes | yes | yes | yes |
-| Acronym bonus | **yes** | weak | no | no | no |
-| Nested object access | **yes** | yes | no | no | no |
-| Array field traversal | **yes** | partial | no | no | no |
-| Cross-field matching | **yes** | no | no | no | no |
-| Match highlighting | yes | yes | yes | yes | no |
-| Pre-built index | no | yes | yes | no | yes |
-| Zero dependencies | yes | yes | yes | yes | yes |
+| Feature | seaq | fuzzysort | fuse.js | minisearch | ufuzzy | lunr |
+|---------|:----:|:---------:|:-------:|:----------:|:------:|:----:|
+| Exact match | yes | yes | yes | yes | yes | yes |
+| Fuzzy/typo tolerance | yes | no | yes | partial | yes | partial |
+| Partial/prefix match | yes | yes | yes | yes | yes | yes |
+| Acronym bonus | yes | yes | weak | no | no | no |
+| Nested object access | yes | yes | yes | no | no | no |
+| Array field traversal | **yes** | via getter | partial | no | no | no |
+| Cross-field matching | yes | yes | no | no | no | no |
+| Match highlighting | yes | yes | yes | yes | yes | no |
+| Pre-built index | no | optional | yes | yes | no | yes |
+| Zero dependencies | yes | yes | yes | yes | yes | yes |
 
 ## When to use seaq
 
@@ -181,9 +183,10 @@ interface SeaqMatch {
 
 - You repeatedly search a large static dataset (10K+ items) -- MiniSearch and Lunr amortize their index cost across many searches and will be significantly faster after the first query (`cache: true` closes part of this gap, but an inverted index still wins on raw repeated-query throughput)
 - You only search flat string arrays and need maximum throughput -- uFuzzy is purpose-built for this
+- You never need typo tolerance and want the fastest repeated search -- fuzzysort matches in-order characters only, but its `snapshot()` is much faster than re-scanning while the user types
 - You need features like stemming, stopwords, or boolean queries -- Lunr and MiniSearch have full-text search capabilities that seaq does not
 
-For benchmark methodology and detailed performance numbers, see [BENCHMARKS.md](https://github.com/garbagemountain/seaq/blob/master/BENCHMARKS.md).
+For benchmark methodology and detailed performance numbers, see [BENCHMARKS.md](https://github.com/billie-coop/seaq/blob/main/BENCHMARKS.md).
 
 ## License
 

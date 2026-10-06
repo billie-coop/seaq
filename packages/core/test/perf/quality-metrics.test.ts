@@ -7,6 +7,7 @@
 
 import uFuzzy from '@leeoniya/ufuzzy';
 import Fuse from 'fuse.js';
+import fuzzysort from 'fuzzysort';
 import MiniSearch from 'minisearch';
 import { describe, expect, test } from 'vitest';
 import { seaq } from '../../src/index';
@@ -164,6 +165,10 @@ function searchFuse(query: string, keys: string[], threshold = 0.4): number[] {
   return fuse.search(query).map((r) => r.item.id);
 }
 
+function searchFuzzysort(query: string, keys: string[]): number[] {
+  return fuzzysort.go(query, people, { keys, limit: 0 }).map((r) => r.obj.id);
+}
+
 function searchMiniSearch(query: string, keys: string[]): number[] {
   const ms = new MiniSearch({ fields: keys, storeFields: ['id'] });
   ms.addAll(people);
@@ -234,6 +239,22 @@ describe('Quality Metrics: Precision & Recall', () => {
     });
   });
 
+  describe('fuzzysort', () => {
+    test.each(testCases)('%s: %s', (_name, { query, keys, expected }) => {
+      const retrieved = searchFuzzysort(query, keys);
+      const metrics = calculateMetrics(retrieved, expected);
+
+      console.log(
+        `fuzzysort "${query}": found [${retrieved.join(', ')}], expected [${expected.join(', ')}]`,
+      );
+      console.log(
+        `  Precision: ${(metrics.precision * 100).toFixed(0)}%, Recall: ${(metrics.recall * 100).toFixed(0)}%, MRR: ${metrics.mrr.toFixed(2)}`,
+      );
+
+      expect(true).toBe(true);
+    });
+  });
+
   describe('minisearch', () => {
     test.each(testCases)('%s: %s', (_name, { query, keys, expected }) => {
       const retrieved = searchMiniSearch(query, keys);
@@ -277,6 +298,7 @@ describe('Quality Summary', () => {
       { name: 'seaq', search: (q: string, k: string[]) => searchSeaq(q, k, false) },
       { name: 'seaq-fuzzy', search: (q: string, k: string[]) => searchSeaq(q, k, true) },
       { name: 'fuse.js', search: searchFuse },
+      { name: 'fuzzysort', search: searchFuzzysort },
       { name: 'minisearch', search: searchMiniSearch },
       { name: 'ufuzzy', search: searchUFuzzy },
     ];

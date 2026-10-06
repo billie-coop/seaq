@@ -7,6 +7,7 @@
 
 import uFuzzy from '@leeoniya/ufuzzy';
 import Fuse from 'fuse.js';
+import fuzzysort from 'fuzzysort';
 import MiniSearch from 'minisearch';
 import { describe, expect, test } from 'vitest';
 import { seaq } from '../../src/index';
@@ -145,6 +146,10 @@ function searchFuse(data: string[], query: string): string[] {
   return fuse.search(query).map((r) => r.item);
 }
 
+function searchFuzzysort(data: string[], query: string): string[] {
+  return fuzzysort.go(query, data, { limit: 0 }).map((r) => r.target);
+}
+
 function searchMiniSearch(data: string[], query: string): string[] {
   const ms = new MiniSearch({ fields: ['text'], storeFields: ['text'] });
   ms.addAll(data.map((text, id) => ({ id, text })));
@@ -194,6 +199,21 @@ describe('Acronym Matching: Does the library find acronyms?', () => {
     });
   });
 
+  describe('fuzzysort', () => {
+    test.each(acronymTests)('$description', ({ query, data, expected }) => {
+      const results = searchFuzzysort(data, query);
+      const found = results.includes(expected);
+      const rank = results.indexOf(expected);
+
+      console.log(`fuzzysort "${query}": ${found ? `found at rank ${rank + 1}` : 'not found'}`);
+      if (results.length > 0) {
+        console.log(`  Top 3: ${results.slice(0, 3).join(', ')}`);
+      }
+
+      expect(true).toBe(true);
+    });
+  });
+
   describe('minisearch', () => {
     test.each(acronymTests)('$description', ({ query, data, expected }) => {
       const results = searchMiniSearch(data, query);
@@ -234,6 +254,7 @@ describe('Acronym Quality Summary', () => {
     const libraries = [
       { name: 'seaq', search: searchSeaq },
       { name: 'fuse.js', search: searchFuse },
+      { name: 'fuzzysort', search: searchFuzzysort },
       { name: 'minisearch', search: searchMiniSearch },
       { name: 'ufuzzy', search: searchUFuzzy },
     ];

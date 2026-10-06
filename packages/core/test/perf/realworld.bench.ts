@@ -8,6 +8,7 @@
 
 import uFuzzy from '@leeoniya/ufuzzy';
 import Fuse from 'fuse.js';
+import fuzzysort from 'fuzzysort';
 import lunr from 'lunr';
 import MiniSearch from 'minisearch';
 import { bench, describe } from 'vitest';
@@ -37,6 +38,12 @@ const lunrIndex = lunr(function () {
   });
 });
 
+// fuzzysort's "index" is an immutable snapshot of prepared targets. Like seaq
+// here, it runs with default options (limit: 10, threshold: 0.5). Note that a
+// snapshot narrows candidates when a query extends the previous one, so
+// repeating the same query benefits from that typing optimization.
+const fuzzysortSnapshot = fuzzysort.snapshot(ManyContacts, { keys: ['givenName', 'familyName'] });
+
 const ufuzzyInstance = new uFuzzy();
 const ufuzzyHaystack = ManyContacts.map((c) => `${c.givenName} ${c.familyName}`);
 
@@ -55,6 +62,10 @@ describe('10K contacts - search only (index pre-built)', () => {
 
     bench('fuse.js', () => {
       fuseIndex.search(queries.short);
+    });
+
+    bench('fuzzysort', () => {
+      fuzzysort.go(queries.short, fuzzysortSnapshot);
     });
 
     bench('minisearch', () => {
@@ -79,6 +90,10 @@ describe('10K contacts - search only (index pre-built)', () => {
       fuseIndex.search(queries.medium);
     });
 
+    bench('fuzzysort', () => {
+      fuzzysort.go(queries.medium, fuzzysortSnapshot);
+    });
+
     bench('minisearch', () => {
       miniSearchIndex.search(queries.medium);
     });
@@ -99,6 +114,10 @@ describe('10K contacts - search only (index pre-built)', () => {
 
     bench('fuse.js', () => {
       fuseIndex.search(queries.long);
+    });
+
+    bench('fuzzysort', () => {
+      fuzzysort.go(queries.long, fuzzysortSnapshot);
     });
 
     bench('minisearch', () => {
@@ -131,6 +150,12 @@ describe('10K contacts - simulated typing (index pre-built)', () => {
     }
   });
 
+  bench('fuzzysort', () => {
+    for (const query of keystrokes) {
+      fuzzysort.go(query, fuzzysortSnapshot);
+    }
+  });
+
   bench('minisearch', () => {
     for (const query of keystrokes) {
       miniSearchIndex.search(query);
@@ -159,6 +184,13 @@ describe('10K contacts - cold start (build + search)', () => {
   bench('fuse.js', () => {
     const fuse = new Fuse(ManyContacts, { keys: ['givenName', 'familyName'] });
     fuse.search(queries.medium);
+  });
+
+  bench('fuzzysort', () => {
+    // go() on raw objects prepares targets lazily and caches them; clear the
+    // cache so every iteration pays the prep cost
+    fuzzysort.cleanup();
+    fuzzysort.go(queries.medium, ManyContacts, { keys: ['givenName', 'familyName'] });
   });
 
   bench('minisearch', () => {
