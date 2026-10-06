@@ -49,7 +49,7 @@ export function Hero() {
         </div>
         <p className="mt-5 text-sm text-gray-500 dark:text-gray-400">
           Everything below is live: pick a dataset — or paste your own JSON — and compare seaq
-          against Fuse.js, MiniSearch, uFuzzy, and Lunr as you type.
+          against fuzzysort, Fuse.js, MiniSearch, uFuzzy, and Lunr as you type.
         </p>
       </div>
       <pre className="overflow-x-auto rounded-lg border border-gray-200 bg-gray-900 p-4 text-xs leading-relaxed text-gray-100 shadow-sm dark:border-gray-700">

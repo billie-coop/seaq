@@ -1,11 +1,13 @@
 import uFuzzy from '@leeoniya/ufuzzy';
 import Fuse from 'fuse.js';
+import fuzzysort, { type Snapshot, type SnapshotKeys } from 'fuzzysort';
 import lunr from 'lunr';
 import MiniSearch from 'minisearch';
 import { seaq } from 'seaq';
 import { seaq as seaqV1 } from 'seaq-v1';
 import type {
   FuseConfig,
+  FuzzysortConfig,
   LunrConfig,
   MiniSearchConfig,
   SeaqConfig,
@@ -402,6 +404,80 @@ export function searchUFuzzy(
   };
 }
 
+// ── fuzzysort ──
+
+let fuzzysortCache: {
+  data: unknown[];
+  keys: string[];
+  targets: Snapshot | SnapshotKeys<unknown>;
+} | null = null;
+
+export function searchFuzzysort(
+  dataset: DatasetConfig,
+  query: string,
+  config: FuzzysortConfig,
+): SearchResult {
+  const keys = dataset.keys;
+  const opts = { threshold: config.threshold, limit: config.limit };
+
+  const { result, timeMs } = timed(() => {
+    const cached =
+      config.preIndexed &&
+      fuzzysortCache?.data === dataset.data &&
+      arraysEqual(fuzzysortCache.keys, keys)
+        ? fuzzysortCache.targets
+        : null;
+
+    if (isStringArray(dataset.data)) {
+      const targets = (cached as Snapshot | null) ?? fuzzysort.snapshot(dataset.data);
+      if (config.preIndexed) fuzzysortCache = { data: dataset.data, keys, targets };
+      const res = fuzzysort.go(query, targets, opts);
+      return {
+        total: res.total,
+        entries: res.map((r) => ({ item: r.target as unknown, perKey: [r] })),
+      };
+    }
+
+    // Getter keys so array paths (e.g. emailAddresses.email) resolve the same
+    // way they're displayed — fuzzysort's string paths don't traverse arrays.
+    const targets =
+      (cached as SnapshotKeys<unknown> | null) ??
+      fuzzysort.snapshot(dataset.data, {
+        keys: keys.map((key) => (item: unknown) => resolveKey(item, key)),
+      });
+    if (config.preIndexed) fuzzysortCache = { data: dataset.data, keys, targets };
+    const res = fuzzysort.go(query, targets, opts);
+    return {
+      total: res.total,
+      entries: res.map((r) => ({ item: r.obj, perKey: [...r] })),
+    };
+  });
+
+  const top = result.entries.slice(0, 10);
+  const highlighted = top.map(({ item, perKey }) => {
+    if (keys.length === 0) {
+      const r = perKey[0];
+      return r ? highlightIndexes(r.target, r.indexes) : esc(String(item));
+    }
+    return buildFieldsHtml(item, keys, (val, key) => {
+      const r = perKey[keys.indexOf(key)];
+      return r && r.target === val ? highlightIndexes(val, r.indexes) : esc(val);
+    });
+  });
+
+  return {
+    results: top.map((e) => dataset.displayFn(e.item)),
+    highlighted,
+    items: top.map((e) => e.item),
+    timeMs,
+    resultCount: result.total,
+  };
+}
+
+export function clearFuzzysortCache() {
+  fuzzysortCache = null;
+}
+
 // ── Lunr ──
 
 let lunrCache: { data: unknown[]; keys: string[]; index: lunr.Index } | null = null;
@@ -528,6 +604,10 @@ function highlightRanges(text: string, ranges: readonly (readonly [number, numbe
   }
   if (pos < text.length) html += esc(text.slice(pos));
   return html;
+}
+
+function highlightIndexes(text: string, indexes: readonly number[]): string {
+  return highlightRanges(text, mergeRanges(indexes.map((i) => [i, i])));
 }
 
 function highlightTerms(text: string, terms: string[]): string {

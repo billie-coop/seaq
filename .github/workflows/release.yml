@@ -1,14 +1,17 @@
 name: Release
 
+# Publishes the version committed in packages/core/package.json. Bump it in a
+# PR first, merge to main, then run this workflow.
+#
+# Authenticates via npm trusted publishing (OIDC) — no NPM_TOKEN. The trusted
+# publisher on npmjs.com must be: owner billie-coop, repo seaq, workflow
+# release.yml.
+
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version to publish (e.g. 2.0.0, 2.1.0-beta.1)'
-        required: true
-        type: string
       dry-run:
-        description: 'Dry run (skip npm publish and GitHub release)'
+        description: 'Dry run (npm publish --dry-run, no GitHub release)'
         required: false
         type: boolean
         default: false
@@ -19,8 +22,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
 
     steps:
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Release must run from main (got ${{ github.ref }})"
+          exit 1
+
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
@@ -58,6 +68,33 @@ jobs:
         env:
           YARN_ENABLE_GLOBAL_CACHE: 'false'
 
+      - name: Read version
+        id: version
+        working-directory: packages/core
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          # Prereleases (2.1.0-beta.1) go to 'next'; stable versions to 'latest'
+          if [[ "$VERSION" == *-* ]]; then
+            echo "dist-tag=next" >> $GITHUB_OUTPUT
+          else
+            echo "dist-tag=latest" >> $GITHUB_OUTPUT
+          fi
+          echo "Releasing seaq@$VERSION"
+
+      - name: Ensure version is unreleased
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null; then
+            echo "::error::Tag v$VERSION already exists — bump packages/core/package.json first"
+            exit 1
+          fi
+          if npm view "seaq@$VERSION" version > /dev/null 2>&1; then
+            echo "::error::seaq@$VERSION is already on npm — bump packages/core/package.json first"
+            exit 1
+          fi
+
       - name: Type check
         run: yarn ts-check
 
@@ -70,19 +107,46 @@ jobs:
       - name: Build
         run: yarn build
 
-      - name: Set version in package.json
+      # Node 24 ships npm 11, which trusted publishing (OIDC) requires. Set up
+      # after the build so proto's Node 22 handles install/test, and this one
+      # (added to PATH last) handles publish.
+      - name: Setup Node.js for publishing
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      # devDependencies use yarn's workspace: protocol, which npm can't parse
+      # and which must never reach the registry. The published package has no
+      # runtime dependencies, so drop the field entirely.
+      - name: Strip devDependencies
         working-directory: packages/core
-        run: npm version "${{ inputs.version }}" --no-git-tag-version
+        run: |
+          npm --version
+          npm pkg delete devDependencies
+          if grep -q 'workspace:' package.json; then
+            echo "::error::workspace: protocol still present in package.json"
+            exit 1
+          fi
+
+      - name: Publish to npm (dry run)
+        if: ${{ inputs.dry-run }}
+        working-directory: packages/core
+        run: npm publish --dry-run --access public --tag "${{ steps.version.outputs.dist-tag }}"
 
       - name: Publish to npm
         if: ${{ !inputs.dry-run }}
         working-directory: packages/core
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public --tag "${{ steps.version.outputs.dist-tag }}"
 
       - name: Create GitHub release
         if: ${{ !inputs.dry-run }}
-        run: gh release create "v${{ inputs.version }}" --generate-notes --target "${{ github.sha }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          DIST_TAG: ${{ steps.version.outputs.dist-tag }}
+        run: |
+          PRERELEASE=""
+          if [[ "$DIST_TAG" == "next" ]]; then PRERELEASE="--prerelease"; fi
+          gh release create "v$VERSION" --title "v$VERSION" --generate-notes \
+            --target "${{ github.sha }}" $PRERELEASE

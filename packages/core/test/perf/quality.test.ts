@@ -7,6 +7,7 @@
 
 import uFuzzy from '@leeoniya/ufuzzy';
 import Fuse from 'fuse.js';
+import fuzzysort from 'fuzzysort';
 import MiniSearch from 'minisearch';
 import { describe, expect, test } from 'vitest';
 import { seaq } from '../../src/index';
@@ -108,6 +109,11 @@ describe('Feature: Exact Match', () => {
     expect(results[0]?.name).toBe('John Smith');
   });
 
+  test('fuzzysort finds exact match', () => {
+    const results = fuzzysort.go('John Smith', people, { key: 'name' });
+    expect(results[0]?.obj.name).toBe('John Smith');
+  });
+
   test('ufuzzy finds exact match', () => {
     const uf = new uFuzzy();
     const haystack = people.map((p) => p.name);
@@ -154,6 +160,15 @@ describe('Feature: Fuzzy/Typo Tolerance', () => {
     expect(true).toBe(true); // Document behavior, don't assert
   });
 
+  test('fuzzysort has no typo tolerance (in-order subsequence only)', () => {
+    // "jonh" isn't a subsequence of "John Smith" at a good score — fuzzysort
+    // only matches characters in order, so transpositions aren't found
+    const results = fuzzysort.go('jonh', people, { key: 'name' });
+    const names = results.map((r) => r.obj.name);
+    console.log('fuzzysort "jonh" results:', names);
+    expect(names).toEqual([]);
+  });
+
   test('ufuzzy in fuzzy mode finds typo', () => {
     const uf = new uFuzzy({ intraMode: 1 }); // fuzzy mode
     const haystack = people.map((p) => p.name);
@@ -190,6 +205,13 @@ describe('Feature: Partial/Prefix Matching', () => {
     expect(results).toContain('Nathan');
   });
 
+  test('fuzzysort finds partial matches', () => {
+    const results = fuzzysort.go('nat', names).map((r) => r.target);
+    expect(results).toContain('Natasha');
+    expect(results).toContain('Nathan');
+    expect(results).not.toContain('Bob');
+  });
+
   test('ufuzzy finds partial matches', () => {
     const uf = new uFuzzy();
     const [idxs] = uf.search(names, 'nat');
@@ -213,6 +235,12 @@ describe('Feature: Acronym Matching', () => {
     // Fuse may or may not prioritize acronyms
     expect(results.length).toBeGreaterThan(0);
     console.log('Fuse.js HiMi results:', results.slice(0, 3));
+  });
+
+  test('fuzzysort prioritizes acronym matches', () => {
+    const results = fuzzysort.go('HiMi', acronymData).map((r) => r.target);
+    console.log('fuzzysort HiMi results:', results);
+    expect(results[0]).toBe('Hillsdale Michigan');
   });
 
   test('ufuzzy does NOT support acronym matching', () => {
@@ -271,6 +299,20 @@ describe('Feature: Nested Object Access', () => {
     expect(results.length).toBe(2);
   });
 
+  test('fuzzysort searches nested properties', () => {
+    const results = fuzzysort.go('New York', people, { key: 'address.city' });
+    expect(results.length).toBe(2);
+  });
+
+  // fuzzysort key paths don't traverse arrays - use a getter instead
+  test('fuzzysort needs a getter for array fields', () => {
+    expect(fuzzysort.go('bigcorp', nestedData, { key: 'emails.address' }).length).toBe(0);
+    const results = fuzzysort.go('bigcorp', nestedData, {
+      key: (d) => d.emails.map((e) => e.address).join(' '),
+    });
+    expect(results.map((r) => r.obj.name)).toEqual(['Charlie']);
+  });
+
   // uFuzzy only searches string arrays - no object support
   test('ufuzzy requires pre-flattened strings (no object support)', () => {
     const haystack = people.map((p) => p.address.city);
@@ -302,6 +344,13 @@ describe('Feature: Multi-word Queries', () => {
       results.slice(0, 3).map((r) => r.item.name),
     );
     expect(results.length).toBeGreaterThan(0);
+  });
+
+  test('fuzzysort handles multi-word across fields', () => {
+    const results = fuzzysort.go('john new', people, { keys: ['name', 'address.city'] });
+    expect(
+      results.some((r) => r.obj.name.includes('John') && r.obj.address.city === 'New York'),
+    ).toBe(true);
   });
 
   test('minisearch handles multi-word queries', () => {
@@ -341,12 +390,27 @@ describe('Quality: Ranking', () => {
   });
 });
 
+describe('Quality: Ranking (fuzzysort)', () => {
+  test('fuzzysort ranks by relevance', () => {
+    const results = fuzzysort.go('John', people, { key: 'name' });
+    expect(results[0]?.obj.name).toBe('John Smith');
+  });
+});
+
 describe('Summary: Feature Support Matrix', () => {
   test('print feature matrix', () => {
     const features = {
-      'Exact match': { seaq: '✓', fuse: '✓', minisearch: '✓', ufuzzy: '✓', lunr: '✓' },
+      'Exact match': {
+        seaq: '✓',
+        fuzzysort: '✓',
+        fuse: '✓',
+        minisearch: '✓',
+        ufuzzy: '✓',
+        lunr: '✓',
+      },
       'Fuzzy/typo tolerance': {
         seaq: '✓ (opt-in)',
+        fuzzysort: '✗ (subseq)',
         fuse: '✓ (default)',
         minisearch: '~ (limited)',
         ufuzzy: '✓ (modes)',
@@ -354,6 +418,7 @@ describe('Summary: Feature Support Matrix', () => {
       },
       'Partial/prefix match': {
         seaq: '✓',
+        fuzzysort: '✓',
         fuse: '✓',
         minisearch: '✓ (opt-in)',
         ufuzzy: '✓',
@@ -361,6 +426,7 @@ describe('Summary: Feature Support Matrix', () => {
       },
       'Acronym bonus': {
         seaq: '✓',
+        fuzzysort: '✓',
         fuse: '~ (ranks low)',
         minisearch: '✗',
         ufuzzy: '✗',
@@ -368,6 +434,7 @@ describe('Summary: Feature Support Matrix', () => {
       },
       'Nested object access': {
         seaq: '✓',
+        fuzzysort: '✓',
         fuse: '✓',
         minisearch: '✗ (flatten)',
         ufuzzy: '✗ (strings)',
@@ -375,6 +442,7 @@ describe('Summary: Feature Support Matrix', () => {
       },
       'Array field traversal': {
         seaq: '✓',
+        fuzzysort: '~ (getter)',
         fuse: '~ (broad)',
         minisearch: '✗',
         ufuzzy: '✗',
@@ -382,24 +450,32 @@ describe('Summary: Feature Support Matrix', () => {
       },
       'Pre-built index': {
         seaq: '✗ (none)',
+        fuzzysort: '✓ (snap)',
         fuse: '✓',
         minisearch: '✓',
         ufuzzy: '✗ (none)',
         lunr: '✓',
       },
-      'Zero dependencies': { seaq: '✓', fuse: '✓', minisearch: '✓', ufuzzy: '✓', lunr: '✓' },
+      'Zero dependencies': {
+        seaq: '✓',
+        fuzzysort: '✓',
+        fuse: '✓',
+        minisearch: '✓',
+        ufuzzy: '✓',
+        lunr: '✓',
+      },
     };
 
     console.log('\n=== Feature Support Matrix ===\n');
     console.log(
-      'Feature                  | seaq       | fuse.js    | minisearch | ufuzzy     | lunr',
+      'Feature                  | seaq       | fuzzysort  | fuse.js    | minisearch | ufuzzy     | lunr',
     );
     console.log(
-      '-------------------------|------------|------------|------------|------------|------------',
+      '-------------------------|------------|------------|------------|------------|------------|------------',
     );
     for (const [feature, support] of Object.entries(features)) {
       console.log(
-        `${feature.padEnd(24)} | ${support.seaq.padEnd(10)} | ${support.fuse.padEnd(10)} | ${support.minisearch.padEnd(10)} | ${support.ufuzzy.padEnd(10)} | ${support.lunr}`,
+        `${feature.padEnd(24)} | ${support.seaq.padEnd(10)} | ${support.fuzzysort.padEnd(10)} | ${support.fuse.padEnd(10)} | ${support.minisearch.padEnd(10)} | ${support.ufuzzy.padEnd(10)} | ${support.lunr}`,
       );
     }
     console.log('');

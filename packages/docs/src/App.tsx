@@ -8,10 +8,12 @@ import { SearchInput } from './components/SearchInput';
 import { type DatasetConfig, datasets, discoverStringPaths, type SelectableDataset } from './data';
 import {
   clearFuseCache,
+  clearFuzzysortCache,
   clearLunrCache,
   clearMiniSearchCache,
   type SearchResult,
   searchFuse,
+  searchFuzzysort,
   searchLunr,
   searchMiniSearch,
   searchSeaq,
@@ -19,7 +21,7 @@ import {
   searchUFuzzy,
 } from './engines';
 
-export type EngineKey = 'seaq' | 'seaqv1' | 'fuse' | 'minisearch' | 'ufuzzy' | 'lunr';
+export type EngineKey = 'seaq' | 'seaqv1' | 'fuzzysort' | 'fuse' | 'minisearch' | 'ufuzzy' | 'lunr';
 
 /** Shown when "Your JSON" is selected but nothing has been loaded yet. */
 const emptyCustomDataset: DatasetConfig = {
@@ -47,6 +49,12 @@ export interface FuseConfig {
   ignoreLocation: boolean;
   minMatchCharLength: number;
   isCaseSensitive: boolean;
+  preIndexed: boolean;
+}
+
+export interface FuzzysortConfig {
+  threshold: number;
+  limit: number;
   preIndexed: boolean;
 }
 
@@ -78,6 +86,7 @@ export type ArrayKeyMap = Record<string, { arrayPath: string; innerPath: string 
 export interface EngineConfigs {
   seaq: SeaqConfig;
   seaqv1: SeaqV1Config;
+  fuzzysort: FuzzysortConfig;
   fuse: FuseConfig;
   minisearch: MiniSearchConfig;
   ufuzzy: UFuzzyConfig;
@@ -87,6 +96,7 @@ export interface EngineConfigs {
 export const defaultConfigs: EngineConfigs = {
   seaq: { fuzziness: 0.2, fieldMode: 'joined', limit: 10, threshold: 0.3, cache: false },
   seaqv1: { fuzziness: 0.2 },
+  fuzzysort: { threshold: 0.5, limit: 10, preIndexed: true },
   fuse: {
     threshold: 0.4,
     distance: 100,
@@ -110,13 +120,22 @@ export const defaultConfigs: EngineConfigs = {
 const engineNames: Record<EngineKey, string> = {
   seaq: 'seaq',
   seaqv1: 'seaq v1',
+  fuzzysort: 'fuzzysort',
   fuse: 'Fuse.js',
   minisearch: 'MiniSearch',
   ufuzzy: 'uFuzzy',
   lunr: 'Lunr',
 };
 
-const engineOrder: EngineKey[] = ['seaq', 'seaqv1', 'fuse', 'minisearch', 'ufuzzy', 'lunr'];
+const engineOrder: EngineKey[] = [
+  'seaq',
+  'seaqv1',
+  'fuzzysort',
+  'fuse',
+  'minisearch',
+  'ufuzzy',
+  'lunr',
+];
 
 export type EngineToggle = { muted: boolean; soloed: boolean };
 
@@ -156,7 +175,7 @@ function NavBar({ view }: { view: View }) {
         Reference
       </a>
       <a
-        href="https://github.com/garbagemountain/seaq"
+        href="https://github.com/billie-coop/seaq"
         target="_blank"
         rel="noreferrer"
         className="ml-auto text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
@@ -238,6 +257,7 @@ export function App() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: rawDs.data identity is the intended trigger
   useEffect(() => {
     clearFuseCache();
+    clearFuzzysortCache();
     clearMiniSearchCache();
     clearLunrCache();
     setSelectedKeys([]);
@@ -260,6 +280,7 @@ export function App() {
     const empty: Record<EngineKey, SearchResult | null> = {
       seaq: null,
       seaqv1: null,
+      fuzzysort: null,
       fuse: null,
       minisearch: null,
       ufuzzy: null,
@@ -270,6 +291,7 @@ export function App() {
     const run: Record<EngineKey, () => SearchResult> = {
       seaq: () => searchSeaq(ds, q, configs.seaq),
       seaqv1: () => searchSeaqV1(ds, q, configs.seaqv1),
+      fuzzysort: () => searchFuzzysort(ds, q, configs.fuzzysort),
       fuse: () => searchFuse(ds, q, configs.fuse),
       minisearch: () => searchMiniSearch(ds, q, configs.minisearch),
       ufuzzy: () => searchUFuzzy(ds, q, configs.ufuzzy),
@@ -357,7 +379,7 @@ export function App() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
           {engineOrder.map((engine) => (
             <ResultsColumn
               key={engine}
