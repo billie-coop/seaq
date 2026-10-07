@@ -131,7 +131,7 @@ You don't set anything up for a search box. The first search of an array just sc
 - **Typing gets cheaper.** In strict mode, when the query extends the previous one ("nat" → "nata"), only the previous matches are re-checked.
 - **Results are identical** to a search without the index.
 
-On 10K contacts, a default search for `"nath fe"` takes 2.6 ms without the index and 0.38 ms with it; with `fuzziness: 0` it takes 13 µs. Building the index costs about as much as one search without it. It uses about 0.5 MB of memory per 10K contacts.
+On 10K contacts, a default search for `"nath fe"` takes 2.4 ms without the index and 0.32 ms with it; with `fuzziness: 0` it takes 16 µs. Building the index costs no more than one search without it. It uses about 1 MB of memory per 10K contacts.
 
 The index is keyed on the array in a `WeakMap`, so it's garbage-collected with the list. Adding, removing or replacing items is detected automatically. **Mutating an item in place is not detected** once the array is indexed: replace the object (`list[i] = { ...item, name }`), or pass `cache: false`. A new array each render (e.g. `items.filter(...)`) is a new list, so it's scanned like any first search.
 

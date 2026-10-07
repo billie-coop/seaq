@@ -27,24 +27,25 @@ library answers in microseconds.
 
 | Library    | Time  | vs best |
 |------------|------:|--------:|
-| fuzzysort  |  8 us |    1.0x |
+| fuzzysort  |  9 us |    1.0x |
+| seaq       | 12 us |    1.3x |
 | uFuzzy     | 12 us |    1.4x |
-| seaq       | 13 us |    1.5x |
-| MiniSearch | 28 us |    3.3x |
-| Fuse.js    | 31 us |    3.7x |
+| MiniSearch | 27 us |    3.1x |
+| Fuse.js    | 32 us |    3.6x |
 
 ### File picker: "btn" across 21 file paths
 
 | Library    | Time  | vs best | Found `Button.tsx`? |
 |------------|------:|--------:|:-------------------:|
-| fuzzysort  |  5 us |    1.0x | No                  |
-| uFuzzy     |  7 us |    1.5x | No                  |
-| seaq       | 11 us |    2.5x | Yes                 |
-| Fuse.js    | 15 us |    3.2x | No                  |
-| MiniSearch | 22 us |    4.8x | No                  |
+| seaq       |  3 us |    1.0x | Yes                 |
+| fuzzysort  |  5 us |    1.8x | No                  |
+| uFuzzy     |  7 us |    2.8x | No                  |
+| Fuse.js    | 16 us |    6.4x | No                  |
+| MiniSearch | 25 us |   10.0x | No                  |
 
-fuzzysort is fastest on small lists, and seaq is a few microseconds behind.
-seaq is the only library that matched "btn" to `Button.tsx`. fuzzysort finds it
+On lists this small every library answers in microseconds: fuzzysort is fastest
+on the command palette, and seaq on the file picker. seaq is the only library
+that matched "btn" to `Button.tsx`. fuzzysort finds it
 as a subsequence, but the score falls below its default 0.5 threshold.
 
 ---
@@ -84,27 +85,27 @@ seaq runs with `cache: false` here so every run is a true first search.
 
 | Library    |   Time  | vs best |
 |------------|--------:|--------:|
-| uFuzzy     |  309 us |    1.0x |
-| fuzzysort  |  624 us |    2.0x |
-| seaq       | 2.14 ms |    6.9x |
-| MiniSearch | 10.8 ms |   34.8x |
-| Fuse.js    | 15.7 ms |   50.8x |
-| Lunr       | 68.5 ms |  221.5x |
+| uFuzzy     |  315 us |    1.0x |
+| fuzzysort  |  632 us |    2.0x |
+| seaq       | 2.17 ms |    6.9x |
+| MiniSearch | 10.8 ms |   34.3x |
+| Fuse.js    | 16.1 ms |   51.1x |
+| Lunr       | 69.6 ms |  221.0x |
 
 ### 20K cities, searching "san"
 
 | Library    |    Time  | vs best |
 |------------|--------: |--------:|
-| uFuzzy     |   978 us |    1.0x |
-| seaq       |  4.14 ms |    4.2x |
-| fuzzysort  |  8.66 ms |    8.9x |
-| Fuse.js    | 18.9 ms  |   19.3x |
-| MiniSearch | 32.7 ms  |   33.4x |
-| Lunr       |  168 ms  |  171.8x |
+| uFuzzy     |   994 us |    1.0x |
+| seaq       |  3.88 ms |    3.9x |
+| fuzzysort  |  8.88 ms |    8.9x |
+| Fuse.js    | 19.4 ms  |   19.5x |
+| MiniSearch | 31.6 ms  |   31.8x |
+| Lunr       |  198 ms  |  198.8x |
 
 uFuzzy is fastest here because it only searches flat string arrays. seaq and
 fuzzysort trade places: fuzzysort is 3.4x faster on 10K short names, and seaq is
-2.1x faster on 20K cities. seaq is 4.6-41x faster than Fuse.js, MiniSearch, and
+2.3x faster on 20K cities. seaq is 5-51x faster than Fuse.js, MiniSearch, and
 Lunr, which pay to build an index they will never reuse. (fuzzysort's
 prepared-target cache is cleared before each run so it starts cold too.)
 
@@ -121,9 +122,9 @@ seaq(cities, "san", { keys: ["name", "state"] })
 | Size       |   Time   | Results |
 |------------|----------|--------:|
 | 20 cities  |     4 us |       1 |
-| 200 cities |    34 us |      10 |
-| 2K cities  |   345 us |      10 |
-| 20K cities |  3.97 ms |      10 |
+| 200 cities |    35 us |      10 |
+| 2K cities  |   358 us |      10 |
+| 20K cities |  4.36 ms |      10 |
 
 These are first searches (`cache: false`). Searching the same list again builds
 an index automatically, so there is still nothing to build, rebuild, or
@@ -179,11 +180,11 @@ That index cost is wasted.
 
 | Library    |  Time  | vs best |
 |------------|-------:|--------:|
-| uFuzzy     |  45 us |    1.0x |
-| fuzzysort  |  58 us |    1.3x |
-| seaq       | 102 us |    2.3x |
-| MiniSearch | 380 us |    8.5x |
-| Fuse.js    | 724 us |   16.1x |
+| uFuzzy     |  46 us |    1.0x |
+| fuzzysort  |  62 us |    1.3x |
+| seaq       |  97 us |    2.1x |
+| MiniSearch | 423 us |    9.2x |
+| Fuse.js    | 800 us |   17.5x |
 
 seaq only indexes an array it has seen before, so new data is simply scanned.
 Nothing is built that won't be reused.
@@ -202,13 +203,13 @@ use it. `seaq no index` passes `cache: false` and scans every time.
 
 | Library       |   Time  | vs best |
 |---------------|--------:|--------:|
-| MiniSearch    |   32 us |    1.0x |
-| fuzzysort     |   70 us |    2.2x |
-| Lunr          |   71 us |    2.2x |
-| seaq          |  253 us |    8.0x |
-| uFuzzy        |  268 us |    8.5x |
-| seaq no index | 2.04 ms |   64.6x |
-| Fuse.js       | 11.6 ms |  368.0x |
+| MiniSearch    |   33 us |    1.0x |
+| fuzzysort     |   72 us |    2.2x |
+| Lunr          |   75 us |    2.3x |
+| seaq          |  274 us |    8.4x |
+| uFuzzy        |  294 us |    9.0x |
+| seaq no index | 2.22 ms |   68.2x |
+| Fuse.js       | 12.5 ms |  384.9x |
 
 fuzzysort's index is an immutable `fuzzysort.snapshot()`.
 
@@ -216,17 +217,17 @@ fuzzysort's index is an immutable `fuzzysort.snapshot()`.
 
 | Library       | Total   | Per keystroke |
 |---------------|--------:|--------------:|
-| MiniSearch    |  265 us |        38 us  |
-| fuzzysort     |  428 us |        61 us  |
-| Lunr          | 1.11 ms |       159 us  |
-| uFuzzy        | 2.24 ms |       320 us  |
-| seaq          | 3.70 ms |       529 us  |
-| seaq no index | 15.4 ms |      2.20 ms  |
-| Fuse.js       | 88.0 ms |      12.6 ms  |
+| MiniSearch    |  257 us |        37 us  |
+| fuzzysort     |  418 us |        60 us  |
+| Lunr          |  884 us |       126 us  |
+| uFuzzy        | 2.29 ms |       327 us  |
+| seaq          | 3.71 ms |       531 us  |
+| seaq no index | 15.7 ms |      2.24 ms  |
+| Fuse.js       | 93.4 ms |      13.3 ms  |
 
 seaq's index makes repeated searches 4-8x faster than scanning, but MiniSearch
 is still 8-14x faster than seaq when it can reuse its index, and fuzzysort is
-3.6-8.6x faster. Those gaps are real. MiniSearch and Lunr look up whole words.
+3.8-8.9x faster. Those gaps are real. MiniSearch and Lunr look up whole words.
 fuzzysort's snapshot only re-checks the previous matches when the query grows by
 a keystroke; seaq does that only with `fuzziness: 0`, because a typo-tolerant
 search can match items the previous query didn't.
@@ -250,21 +251,22 @@ of a firehose of garbage.
 
 | Query      | v1 time  | v1 results | v2 time  | v2 results | Speedup |
 |------------|----------|-----------:|----------|-----------:|--------:|
-| "san"      | 4.72 ms  |      1,894 | 2.75 ms  |      1,925 |    1.7x |
-| "new york" | 4.63 ms  |          3 | 2.01 ms  |          4 |    2.3x |
-| "los ang"  | 4.51 ms  |          5 | 2.10 ms  |         38 |    2.1x |
+| "san"      | 3.92 ms  |      1,894 | 3.27 ms  |      2,183 |    1.2x |
+| "new york" | 4.18 ms  |          3 | 2.22 ms  |          4 |    1.9x |
+| "los ang"  | 3.79 ms  |          5 | 2.21 ms  |         44 |    1.7x |
 
-The core scoring engine is 1.7-2.3x faster through pre-lowered targets, bitmask
-pre-filtering, and a quadratic miss penalty. v2 also matches more: shorthand,
-adjacent swapped letters, and words in any order, which is why "los ang" finds
-38 cities instead of 5.
+The core scoring engine is 1.2-1.9x faster through pre-lowered targets, bitmask
+pre-filtering, and a quadratic miss penalty, while matching more: shorthand,
+swapped letters, and words in any order, which is why "los ang" finds 44 cities
+instead of 5. A short query like "san" gains the least, because v2 finds and
+scores more matches for it.
 
 ### The real v2 win: limit + threshold
 
 | Query  | v1 time  | v1 results | v2 time  | v2 results |
 |--------|----------|-----------:|----------|-----------:|
-| "san"  | 4.60 ms  |      1,894 | 2.53 ms  |         10 |
-| "na"   | 5.32 ms  |      4,808 | 3.00 ms  |         10 |
+| "san"  | 4.06 ms  |      1,894 | 2.77 ms  |         10 |
+| "na"   | 4.73 ms  |      4,808 | 3.18 ms  |         10 |
 
 v1 scored and sorted every item, then you called `.slice(0, 10)` to get the top
 results. A query like "nath" on 10K contacts returned 9,756 results -- 97.5%
@@ -273,7 +275,7 @@ garbage.
 v2 defaults to `{ limit: 10, threshold: 0.3 }`. The threshold drops results
 scoring below 30% of the best match. The heap keeps only the top N without a
 full sort. You get 10 good results instead of 9,756 bad ones, and it is about
-1.8x faster too.
+1.5x faster too.
 
 ---
 
