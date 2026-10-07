@@ -15,8 +15,9 @@
  * the better one counts. Adjacent swapped characters ("laguht" → Laughton)
  * still match, at a small penalty.
  *
- * With `fuzziness` 0 (the default) every query character must be found.
- * With fuzziness > 0, missing characters are allowed but degrade the score.
+ * With `fuzziness` 0 every query character must be found. With fuzziness > 0
+ * (seaq's default is 0.2), missing characters are allowed but degrade the
+ * score.
  *
  * The target is read as lowercase UTF-16 code units (`codes[start..end)`)
  * alongside the original string for case and word-start checks.
@@ -69,6 +70,13 @@ export interface QueryPlan {
   /** Total lowercase characters across all words. */
   length: number;
 }
+
+/**
+ * Score for a character that continues a run. A word-start match earns 0.9,
+ * so a prefix ("san" → Sandy) still edges out initials ("san" → Sulz am
+ * Neckar) once the shorter target's coverage counts.
+ */
+const CONSECUTIVE = 0.8;
 
 /** Score multiplier per adjacent swap ("laguht" for "laught"). */
 export const SWAP_PENALTY = 0.9;
@@ -145,10 +153,10 @@ function align(
       here === lowerWord.charCodeAt(i + 1) &&
       codeAt(lower, codes, start, len, startAt + 1) === code
     ) {
-      let cs = prevFound ? 0.7 : 0.1 + (raw.charCodeAt(startAt - 1) === 32 ? 0.8 : 0);
+      let cs = prevFound ? CONSECUTIVE : 0.1 + (raw.charCodeAt(startAt - 1) === 32 ? 0.8 : 0);
       cs += caseBonus(raw, startAt, word, lowerWord, i + 1);
       rs += cs;
-      cs = 0.7;
+      cs = CONSECUTIVE;
       cs += caseBonus(raw, startAt + 1, word, lowerWord, i);
       rs += cs;
       if (first < 0) first = startAt;
@@ -193,7 +201,7 @@ function align(
 
     let cs: number;
     if (pos === startAt && prevFound) {
-      cs = 0.7;
+      cs = CONSECUTIVE;
     } else {
       cs = 0.1;
       // Acronym bonus: a word-start match counts like two consecutive ones

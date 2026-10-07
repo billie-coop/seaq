@@ -35,6 +35,11 @@ describe('shorthand and acronyms', () => {
     expect(seaq(people, 'stla')).toContain('Stephen Laughton');
   });
 
+  test('a prefix outranks scattered word starts', () => {
+    expect(seaq(['Sulz am Neckar', 'Sandy'], 'san')[0]).toBe('Sandy');
+    expect(seaq(['Nancy Thompson', 'Nathan Fox'], 'nath')[0]).toBe('Nathan Fox');
+  });
+
   test('acronyms realign to word starts: "IDE"', () => {
     // The earliest "d" is the end of "Integrated"; jumping to the start of
     // "Development" earns the acronym bonus
