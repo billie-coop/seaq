@@ -726,7 +726,8 @@ function ConfigControls({ engineKey, config, onConfigChange }: ResultsColumnProp
 
 // ── Main component ──
 
-const toggleBtnBase = 'w-5 h-5 rounded text-[10px] font-bold leading-none transition-colors';
+const toggleBtnBase =
+  'w-5 h-5 shrink-0 rounded text-[10px] font-bold leading-none transition-colors';
 
 export function ResultsColumn(props: ResultsColumnProps) {
   const { name, query, keys, arrayKeyMap, engineKey, config, result, toggle, onToggle, active } =
@@ -742,11 +743,13 @@ export function ResultsColumn(props: ResultsColumnProps) {
       }`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+        <div className="flex min-w-0 items-center gap-1.5">
           <button
             type="button"
-            title="Solo — only run this engine (Shift+click to add)"
+            title="Solo — only run soloed engines (solo several to compare them)"
+            aria-label={`Solo ${name}`}
+            aria-pressed={toggle.soloed}
             className={`${toggleBtnBase} ${
               toggle.soloed
                 ? 'bg-amber-400 text-amber-900 hover:bg-amber-500'
@@ -758,7 +761,9 @@ export function ResultsColumn(props: ResultsColumnProps) {
           </button>
           <button
             type="button"
-            title="Mute — disable this engine"
+            title="Mute — don't run this engine"
+            aria-label={`Mute ${name}`}
+            aria-pressed={toggle.muted}
             className={`${toggleBtnBase} ${
               toggle.muted
                 ? 'bg-red-500 text-white hover:bg-red-600'
@@ -768,18 +773,25 @@ export function ResultsColumn(props: ResultsColumnProps) {
           >
             M
           </button>
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{name}</h3>
-        </div>
-        <div className="flex items-center gap-2">
           <button
             type="button"
-            className="rounded border border-gray-300 px-1.5 py-0.5 text-[10px] text-gray-500 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700"
+            title="Reset — restore this engine's default options"
+            aria-label={`Reset ${name} options`}
+            className={`${toggleBtnBase} bg-gray-200 text-gray-500 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-400 dark:hover:bg-gray-500`}
             onClick={() =>
               props.onConfigChange(defaultConfigs[engineKey] as Partial<EngineConfigs[EngineKey]>)
             }
           >
-            Reset
+            R
           </button>
+          <h3
+            className="ml-0.5 truncate text-sm font-semibold text-gray-900 dark:text-white"
+            title={name}
+          >
+            {name}
+          </h3>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
           {result && (
             <span
               className={`rounded-full px-2 py-0.5 text-xs font-medium ${timingColor(result.timeMs)}`}
