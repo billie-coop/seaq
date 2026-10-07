@@ -56,7 +56,7 @@ interface ListIndex {
   lastLower: string | null;
   lastRows: Int32Array;
   lastRowsLen: number;
-  /** Fuzzy-mode score scratch space, reused across searches. */
+  /** Per-row score scratch space, reused across searches. */
   scores: Float64Array;
 }
 
@@ -73,6 +73,7 @@ export interface IndexedScore<T> {
  * repairing the index first. Returns items with score > 0 in list order,
  * exactly as an unindexed scan would — except that rows proven unable to
  * reach the final result set (given `limit` and `threshold`) are omitted.
+ * `maxScore` is always the true best score.
  */
 export function scoreIndexed<T>(
   list: T[],
@@ -86,9 +87,64 @@ export function scoreIndexed<T>(
   const index = getIndex(list, signature, prep);
   const lowerQuery = query.toLowerCase();
   const queryMask = charMask(lowerQuery);
-  return fuzziness
-    ? scoreFuzzy(index, list, query, lowerQuery, queryMask, fuzziness, limit, threshold)
-    : scoreStrict(index, list, query, lowerQuery, queryMask);
+  const top = new TopScores(limit, threshold, list.length);
+  const rowsLen = fuzziness
+    ? scoreFuzzy(index, query, lowerQuery, queryMask, fuzziness, top)
+    : scoreStrict(index, query, lowerQuery, queryMask, top);
+
+  // Materialize only rows that can still make the result: anything below
+  // the final bar is cut by the threshold or by the top-N selection
+  const bar = top.bar();
+  const { lastRows: rows, scores } = index;
+  const items: IndexedScore<T>[] = [];
+  for (let i = 0; i < rowsLen; i++) {
+    // biome-ignore lint/style/noNonNullAssertion: i < rowsLen ≤ rows.length
+    const r = rows[i]!;
+    // biome-ignore lint/style/noNonNullAssertion: r is a valid row
+    const s = scores[r]!;
+    if (s >= bar) items.push({ item: list[r] as T, score: s });
+  }
+  return { items, maxScore: top.max };
+}
+
+/**
+ * Running best score plus the top `limit` scores seen so far (min-heap).
+ * `bar()` is the lowest score that can still appear in the final result:
+ * the relative threshold cutoff, or the weakest of a full top-N, whichever
+ * is higher. It only rises as more scores are recorded.
+ */
+class TopScores {
+  max = 0;
+  private heap: Float64Array | null;
+  private len = 0;
+  private cap: number;
+
+  constructor(
+    limit: number,
+    private threshold: number,
+    rows: number,
+  ) {
+    // The final top-N keeps up to ceil(limit) items; a heap that can never
+    // fill (limit ≥ rows) is skipped
+    this.cap = Number.isFinite(limit) ? Math.ceil(limit) : rows;
+    this.heap = this.cap < rows ? new Float64Array(this.cap) : null;
+  }
+
+  record(s: number): void {
+    if (s > this.max) this.max = s;
+    const heap = this.heap;
+    if (!heap) return;
+    if (this.len < this.cap) heapPush(heap, this.len++, s);
+    // biome-ignore lint/style/noNonNullAssertion: heap is full here
+    else if (s > heap[0]!) heapReplaceTop(heap, this.len, s);
+  }
+
+  bar(): number {
+    const cutoff = this.max * this.threshold;
+    // biome-ignore lint/style/noNonNullAssertion: heap is full here
+    const weakest = this.heap && this.len === this.cap ? this.heap[0]! : 0;
+    return cutoff > weakest ? cutoff : weakest;
+  }
 }
 
 function getIndex<T>(list: T[], signature: string, prep: (item: T) => string | null): ListIndex {
@@ -161,18 +217,19 @@ function prepRow<T>(index: ListIndex, r: number, item: T, prep: (item: T) => str
   }
 }
 
-function scoreStrict<T>(
+/**
+ * Strict scoring. Writes every row scoring > 0 to `index.lastRows` in list
+ * order (also the narrowing state for the next keystroke) and returns how
+ * many there are.
+ */
+function scoreStrict(
   index: ListIndex,
-  list: T[],
   query: string,
   lowerQuery: string,
   queryMask: number,
-): { items: IndexedScore<T>[]; maxScore: number } {
-  const { strings, lowers, masks } = index;
-  const out: IndexedScore<T>[] = [];
-  let maxScore = 0;
-
-  // Rows that score > 0 for this query, for narrowing the next keystroke
+  top: TopScores,
+): number {
+  const { strings, lowers, masks, scores } = index;
   const matched = index.lastRows;
   let matchedLen = 0;
 
@@ -181,8 +238,8 @@ function scoreStrict<T>(
     const s = string_score(strings[r]!, query, 0, lowerQuery, undefined, lowers[r]);
     if (s > 0) {
       matched[matchedLen++] = r;
-      if (s > maxScore) maxScore = s;
-      out.push({ item: list[r] as T, score: s });
+      scores[r] = s;
+      top.record(s);
     }
   };
 
@@ -221,23 +278,27 @@ function scoreStrict<T>(
 
   index.lastLower = lowerQuery;
   index.lastRowsLen = matchedLen;
-  return { items: out, maxScore };
+  return matchedLen;
 }
 
-function scoreFuzzy<T>(
+/**
+ * Fuzzy scoring. Writes every scored row with score > 0 to
+ * `index.lastRows` in list order and returns how many there are.
+ */
+function scoreFuzzy(
   index: ListIndex,
-  list: T[],
   query: string,
   lowerQuery: string,
   queryMask: number,
   fuzziness: number,
-  limit: number,
-  threshold: number,
-): { items: IndexedScore<T>[]; maxScore: number } {
-  // Narrowing state only holds for strict scores
+  top: TopScores,
+): number {
+  // Narrowing state only holds for strict scores; lastRows is reused below
   index.lastLower = null;
 
-  const { strings, lowers, masks } = index;
+  const { strings, lowers, masks, scores } = index;
+  const rows = index.lastRows;
+  let rowsLen = 0;
   const n = masks.length;
   const len = query.length;
 
@@ -251,24 +312,11 @@ function scoreFuzzy<T>(
   }
   const ceiling = scoreCeilings(len, 1 - fuzziness);
 
-  // Track the top `limit` scores so far. The final top-N selection keeps up
-  // to ceil(limit) items; a heap that can never fill (limit ≥ rows) is skipped.
-  const cap = Number.isFinite(limit) ? Math.ceil(limit) : n;
-  const heap = cap < n ? new Float64Array(cap) : null;
-  let heapLen = 0;
-  let maxScore = 0;
-
-  // Every slot read below was written earlier in this search, so the
-  // buffer needs no clearing between searches
-  const scores = index.scores;
+  // Every scores[] slot read below was written earlier in this search, so
+  // the buffer needs no clearing between searches
   const record = (r: number, s: number) => {
     scores[r] = s;
-    if (s > maxScore) maxScore = s;
-    if (heap) {
-      if (heapLen < cap) heapPush(heap, heapLen++, s);
-      // biome-ignore lint/style/noNonNullAssertion: heap is full here
-      else if (s > heap[0]!) heapReplaceTop(heap, heapLen, s);
-    }
+    top.record(s);
   };
   const scoreRow = (r: number) =>
     // biome-ignore lint/style/noNonNullAssertion: only called for rows with a search string
@@ -284,7 +332,6 @@ function scoreFuzzy<T>(
 
   // Pass 2: everything else, in list order, skipping rows that can't beat
   // the bar. The bar only rises, and every skipped row scores below it.
-  const out: IndexedScore<T>[] = [];
   for (let r = 0; r < n; r++) {
     // biome-ignore lint/style/noNonNullAssertion: r < n
     const mask = masks[r]!;
@@ -297,20 +344,15 @@ function scoreFuzzy<T>(
         misses += classCount[31 - Math.clz32(m & -m)]!;
       }
       if (misses >= len) continue; // no query character present: score 0
-      const bar = Math.max(
-        maxScore * threshold,
-        // biome-ignore lint/style/noNonNullAssertion: heap is full here
-        heap && heapLen === cap ? heap[0]! : 0,
-      );
       // biome-ignore lint/style/noNonNullAssertion: misses < len
-      if (ceiling[misses]! < bar) continue;
+      if (ceiling[misses]! < top.bar()) continue;
       record(r, scoreRow(r));
     }
     // biome-ignore lint/style/noNonNullAssertion: r < n
     const s = scores[r]!;
-    if (s > 0) out.push({ item: list[r] as T, score: s });
+    if (s > 0) rows[rowsLen++] = r;
   }
-  return { items: out, maxScore };
+  return rowsLen;
 }
 
 /**
