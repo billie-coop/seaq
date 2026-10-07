@@ -1,6 +1,7 @@
 /**
- * The default (fuzziness 0) mode: every query character must exist, but
- * shorthand, acronyms, adjacent swaps and any word order match.
+ * Matching that works at every fuzziness: shorthand, acronyms, adjacent
+ * swaps and any word order. Missing characters additionally need fuzziness
+ * (the default 0.2) — strict mode (fuzziness 0) rejects them.
  */
 import { describe, expect, test } from 'vitest';
 import { type SeaqResult, seaq } from '../src/index';
@@ -60,8 +61,8 @@ describe('adjacent swaps', () => {
     expect(exact?.score).toBeGreaterThan(swapped?.score ?? 0);
   });
 
-  test('a moved letter (not adjacent) does not match', () => {
-    expect(seaq(['Laughton'], 'lugahton')).toEqual([]);
+  test('a moved letter (not adjacent) does not match strictly', () => {
+    expect(seaq(['Laughton'], 'lugahton', { fuzziness: 0 })).toEqual([]);
   });
 
   test('swapped letters highlight as one run', () => {
@@ -105,18 +106,18 @@ describe('word order', () => {
   });
 });
 
-describe('missing characters need typo mode', () => {
-  test('"stevelaguht" has a "v" Stephen Laughton lacks: no match by default', () => {
-    expect(seaq(people, 'stevelaguht')).not.toContain('Stephen Laughton');
+describe('missing characters need fuzziness', () => {
+  test('"stevelaguht" has a "v" Stephen Laughton lacks: no strict match', () => {
+    expect(seaq(people, 'stevelaguht', { fuzziness: 0 })).not.toContain('Stephen Laughton');
   });
 
-  test('fuzziness lets missing characters through', () => {
-    expect(seaq(people, 'stevelaguht', { fuzziness: 0.2 })).toContain('Stephen Laughton');
+  test('the default fuzziness lets missing characters through', () => {
+    expect(seaq(people, 'stevelaguht')).toContain('Stephen Laughton');
   });
 
-  test('"stephin" needs fuzziness (no "i" in Stephen Laughton)', () => {
-    expect(seaq(people, 'stephin')).not.toContain('Stephen Laughton');
-    expect(seaq(people, 'stephin', { fuzziness: 0.2 })).toContain('Stephen Laughton');
+  test('"stephin" (no "i" in Stephen Laughton) needs fuzziness', () => {
+    expect(seaq(people, 'stephin', { fuzziness: 0 })).not.toContain('Stephen Laughton');
+    expect(seaq(people, 'stephin')).toContain('Stephen Laughton');
   });
 
   test('letters that exist in order still match as shorthand', () => {

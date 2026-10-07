@@ -206,3 +206,45 @@ describe('scoring a packed slot matches scoring the string', () => {
     }
   });
 });
+
+describe('default caching', () => {
+  const keys = ['givenName', 'familyName'];
+
+  test('default results match an unindexed scan on every search', () => {
+    const list = contacts.slice();
+    for (const q of ['nath', 'nath fe', 'jonh', 'evans nath', 'xq']) {
+      const plain = seaq(list, q, { keys, cache: false });
+      // first default search scans, later ones use the index
+      expect(seaq(list, q, { keys })).toEqual(plain);
+      expect(seaq(list, q, { keys })).toEqual(plain);
+    }
+  });
+
+  test('the first search of an array does not index it', () => {
+    const list = contacts.slice(0, 50).map((c) => ({ ...c }));
+    seaq(list, 'zz', { keys }); // first search: scan only
+    (list[0] as Contact).givenName = 'Zelda'; // mutate in place
+    // Second search builds the index from current data, so it sees the edit
+    expect(seaq(list, 'zelda', { keys })[0]).toBe(list[0]);
+  });
+
+  test('in-place edits after indexing are not seen (documented); cache: false sees them', () => {
+    const list = contacts.slice(0, 50).map((c) => ({ ...c }));
+    seaq(list, 'zz', { keys });
+    seaq(list, 'zz', { keys }); // index built
+    (list[1] as Contact).givenName = 'Zelda';
+    expect(seaq(list, 'zelda', { keys, fuzziness: 0 })).toEqual([]);
+    expect(seaq(list, 'zelda', { keys, cache: false })[0]).toBe(list[1]);
+    // Replacing the object is detected
+    list[1] = { ...(list[1] as Contact) };
+    expect(seaq(list, 'zelda', { keys })[0]).toBe(list[1]);
+  });
+
+  test('separate mode does not cache by default', () => {
+    const list = contacts.slice(0, 50).map((c) => ({ ...c }));
+    seaq(list, 'zz', { keys, fieldMode: 'separate' });
+    seaq(list, 'zz', { keys, fieldMode: 'separate' });
+    (list[2] as Contact).givenName = 'Zelda';
+    expect(seaq(list, 'zelda', { keys, fieldMode: 'separate' })[0]).toBe(list[2]);
+  });
+});

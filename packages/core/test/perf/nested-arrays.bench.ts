@@ -304,7 +304,8 @@ describe('Deep nested: addresses.city', () => {
 describe('Cold start with nested data (includes data prep)', () => {
   describe('1K contacts', () => {
     bench('seaq (no prep needed)', () => {
-      seaq(contacts1K, 'Acme', { keys: ['company.name', 'emails.address'] });
+      // cache: false — cold; by default a repeated array gets indexed
+      seaq(contacts1K, 'Acme', { keys: ['company.name', 'emails.address'], cache: false });
     });
 
     bench('fuse.js (index build)', () => {
@@ -322,7 +323,7 @@ describe('Cold start with nested data (includes data prep)', () => {
 
   describe('5K contacts', () => {
     bench('seaq (no prep needed)', () => {
-      seaq(contacts5K, 'Acme', { keys: ['company.name', 'emails.address'] });
+      seaq(contacts5K, 'Acme', { keys: ['company.name', 'emails.address'], cache: false });
     });
 
     bench('fuse.js (index build)', () => {
@@ -345,7 +346,11 @@ describe('Cold start with nested data (includes data prep)', () => {
 
 describe('Multi-field nested search', () => {
   bench('seaq: search name + company + city', () => {
-    seaq(contacts1K, 'John Acme', { keys: ['name', 'company.name', 'addresses.city'] });
+    // cache: false — cold, like the Fuse.js index built inside each iteration
+    seaq(contacts1K, 'John Acme', {
+      keys: ['name', 'company.name', 'addresses.city'],
+      cache: false,
+    });
   });
 
   bench('fuse.js: search name + company + city', () => {

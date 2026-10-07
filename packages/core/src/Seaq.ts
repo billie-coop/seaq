@@ -41,9 +41,9 @@ export interface SeaqResult<T> {
  * Configuration for {@link seaq} search behavior.
  *
  * All options are optional — calling `seaq(list, query)` with no options
- * searches a plain string array for items containing every query character:
- * shorthand ("steplau"), acronyms ("NYC"), adjacent swaps ("laguht") and
- * words in any order all match; missing characters don't.
+ * searches a plain string array with light typo tolerance: shorthand
+ * ("steplau"), acronyms ("NYC"), adjacent swaps ("laguht"), words in any
+ * order and the odd missing character all match.
  */
 export interface SeaqOptions<T> {
   /**
@@ -59,13 +59,12 @@ export interface SeaqOptions<T> {
   keys?: Array<Extract<keyof T, string>> | string[];
   /**
    * Tolerance for characters that aren't in the item at all (typos like
-   * "stephan" or "steve" for "Stephen"), from 0 to 1. Values outside that
-   * range are clamped.
+   * "stephin" for "Stephen"), from 0 to 1. Values outside that range are
+   * clamped. Shorthand ("steplau"), acronyms, adjacent swaps ("jonh" →
+   * "john") and any word order match at every setting.
    *
-   * - `0` (default) — every query character must be found. Shorthand
-   *   ("steplau"), acronyms, adjacent swaps ("jonh" → "john") and any word
-   *   order still match. Fastest, especially with `cache: true`.
-   * - `0.2` — light tolerance: missing characters allowed, scored lower
+   * - `0.2` (default) — light tolerance: missing characters allowed, scored lower
+   * - `0` — every query character must be found. Fastest.
    * - `0.5` — moderate tolerance
    * - `0.8–1` — very loose, matches almost anything (rarely useful)
    */
@@ -116,19 +115,23 @@ export interface SeaqOptions<T> {
    */
   includeMatches?: boolean;
   /**
-   * When `true`, builds a search index for the list (keyed on the array via
-   * a `WeakMap`) and reuses it while the same array is searched again —
-   * a large win for repeated searches (e.g. typeahead) over a static list.
-   * Results are identical to an uncached search.
+   * Search index for repeated searches over the same array (typeahead).
+   * Results are identical with or without it.
    *
-   * The index records which character classes each item contains, so strict
-   * searches only score items containing every query character, and fuzzy
-   * searches skip items whose missing characters cap their score below the
-   * current top results. Added, removed or replaced items are detected; an
-   * item mutated in place is not (replace the object instead).
+   * - default — the second search of an array builds an index (keyed on the
+   *   array via a `WeakMap`) that later searches reuse; one-off searches
+   *   just scan
+   * - `true` — build the index on the first search
+   * - `false` — never index; every search re-reads the items
    *
-   * In `fieldMode: 'separate'`, prepared strings are cached per item
-   * (keyed on object identity) instead.
+   * The index records which character classes each item contains, so
+   * searches only score items that can make the results. Added, removed or
+   * replaced items are detected; an item **mutated in place is not** —
+   * replace the object, or pass `cache: false`.
+   *
+   * In `fieldMode: 'separate'` there is no index: `cache: true` caches
+   * prepared strings per item (keyed on object identity) instead, and the
+   * default is not to cache.
    */
   cache?: boolean;
 }
@@ -146,7 +149,7 @@ export interface SeaqOptions<T> {
  * @returns Filtered and sorted array of matching items
  *
  * @example
- * // Search objects by specific keys (joined mode, every character must match)
+ * // Search objects by specific keys (joined mode, light typo tolerance)
  * seaq(contacts, 'john', { keys: ['name', 'email'] })
  *
  * @example
@@ -158,8 +161,8 @@ export interface SeaqOptions<T> {
  * seaq(contacts, 'laguht steph', { keys: ['name'] })
  *
  * @example
- * // Typo tolerance for characters that aren't there at all
- * seaq(contacts, 'stephan', { keys: ['name'], fuzziness: 0.2 })
+ * // Strict: every character must be found
+ * seaq(contacts, 'steph', { keys: ['name'], fuzziness: 0 })
  *
  * @example
  * // Nested property + array traversal
@@ -170,8 +173,8 @@ export interface SeaqOptions<T> {
  * seaq(contacts, 'john', { keys: ['name'], limit: 3 })
  *
  * @example
- * // Repeated searches over a static list (typeahead) — enable the cache
- * seaq(contacts, 'john', { keys: ['name'], cache: true })
+ * // Items edited in place between searches — turn the index off
+ * seaq(contacts, 'john', { keys: ['name'], cache: false })
  *
  * @example
  * // Search a plain string array (no keys needed)
@@ -189,7 +192,7 @@ export function seaq<T>(
   options?: SeaqOptions<T>,
 ): Array<T> | SeaqResult<T>[] {
   const keys = options?.keys as string[] | undefined;
-  const rawFuzziness = options?.fuzziness === undefined ? 0 : options.fuzziness;
+  const rawFuzziness = options?.fuzziness === undefined ? 0.2 : options.fuzziness;
   // Clamp to the documented [0, 1] range — fuzziness > 1 would flip the
   // miss penalty into a score bonus inside the scorer
   const fuzziness = rawFuzziness < 0 ? 0 : rawFuzziness > 1 ? 1 : rawFuzziness;
@@ -197,7 +200,7 @@ export function seaq<T>(
   const limit = options?.limit ?? 10;
   const threshold = options?.threshold ?? 0.3;
   const includeMatches = options?.includeMatches ?? false;
-  const useCache = options?.cache ?? false;
+  const cache = options?.cache;
 
   if (!query.trim()) return [];
   if (limit <= 0) return [];
@@ -205,9 +208,13 @@ export function seaq<T>(
   // Split dot-notation paths once per call instead of per segment per item
   const keyPaths = keys?.map((k) => k.split('.'));
 
-  // cache + joined mode (or a keyless list) uses the list-level index; the
-  // separate-mode cache stays per item
-  const indexPaths = useCache && (!keys || fieldMode === 'joined') ? (keyPaths ?? null) : undefined;
+  // Joined mode and keyless lists use the list-level index: always with
+  // cache: true, never with cache: false, and by default from the second
+  // search of the same array on (one-off searches don't pay to build it).
+  // Separate mode's cache stays per item and is opt-in.
+  const indexable = !keys || fieldMode === 'joined';
+  const useIndex = indexable && (cache === true || (cache === undefined && searchedBefore(list)));
+  const indexPaths = useIndex ? (keyPaths ?? null) : undefined;
   const { items: scored, maxScore } =
     indexPaths !== undefined
       ? scoreIndexed(
@@ -226,7 +233,16 @@ export function seaq<T>(
                     ? String(item)
                     : JSON.stringify(item),
         )
-      : scoreItems(list, query, keys, keyPaths, fuzziness, fieldMode, includeMatches, useCache);
+      : scoreItems(
+          list,
+          query,
+          keys,
+          keyPaths,
+          fuzziness,
+          fieldMode,
+          includeMatches,
+          cache === true && !indexable,
+        );
 
   const cutoff = maxScore * threshold;
 
@@ -246,6 +262,19 @@ export function seaq<T>(
     return sorted.map((m) => ({ item: m.item, score: m.score, matches: m.matches! }));
   }
   return sorted.map((m) => m.item);
+}
+
+/** Arrays searched at least once with the default `cache` setting. */
+const searched = new WeakSet<object>();
+
+/**
+ * Whether `list` was searched before (with the default `cache` setting).
+ * Records it either way, so the second search of an array builds its index.
+ */
+function searchedBefore(list: object): boolean {
+  if (searched.has(list)) return true;
+  searched.add(list);
+  return false;
 }
 
 /**

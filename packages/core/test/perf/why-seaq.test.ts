@@ -142,7 +142,8 @@ describe('SCENARIO 1: Small list filtering (< 50 items)', () => {
         const { ms, result } = (() => {
           switch (lib) {
             case 'seaq':
-              return sampled(() => seaq(menuItems, q));
+              // cache: false — the other libraries rebuild per search here too
+              return sampled(() => seaq(menuItems, q, { cache: false }));
             case 'fuzzysort':
               return sampled(() =>
                 fuzzysortCold(() => fuzzysort.go(q, menuItems).map((r) => r.target)),
@@ -184,7 +185,7 @@ describe('SCENARIO 1: Small list filtering (< 50 items)', () => {
   test('File picker — fuzzy match 21 file paths', () => {
     const rows: Row[] = [];
 
-    const { ms: seaqMs, result: seaqR } = sampled(() => seaq(files, 'btn'));
+    const { ms: seaqMs, result: seaqR } = sampled(() => seaq(files, 'btn', { cache: false }));
     rows.push({ lib: 'seaq', ms: seaqMs, count: seaqR.length, top3: seaqR.slice(0, 3) });
 
     const { ms: fsMs, result: fsR } = sampled(() =>
@@ -312,7 +313,8 @@ describe('SCENARIO 3: Cold start (no index, data just arrived)', () => {
     const contactName = (c: Contact) => `${c.givenName} ${c.familyName}`;
 
     const { ms: seaqMs, result: seaqR } = sampled(() =>
-      seaq(ManyContacts, 'nath', { keys: ['givenName', 'familyName'] }),
+      // cache: false — cold; a repeated array would otherwise get indexed
+      seaq(ManyContacts, 'nath', { keys: ['givenName', 'familyName'], cache: false }),
     );
     rows.push({
       lib: 'seaq',
@@ -400,7 +402,7 @@ describe('SCENARIO 3: Cold start (no index, data just arrived)', () => {
     const rows: Row[] = [];
 
     const { ms: seaqMs, result: seaqR } = sampled(() =>
-      seaq(Cities, 'san', { keys: ['name', 'state'] }),
+      seaq(Cities, 'san', { keys: ['name', 'state'], cache: false }),
     );
     rows.push({
       lib: 'seaq',
@@ -493,20 +495,23 @@ describe('SCENARIO 4: Scaling without refactoring', () => {
 
   test('same seaq() call from 20 → 20K items', () => {
     console.log(
-      `\n  Scaling: seaq(cities, "san", { keys: ["name", "state"] }) (median of ${SAMPLES} runs)`,
+      `\n  Scaling: seaq(cities, "san", { keys: ["name", "state"], cache: false }) (median of ${SAMPLES} runs)`,
     );
     console.log(`  ${'Size'.padEnd(14)} ${'Time'.padStart(10)} ${'Results'.padStart(8)}`);
     console.log(`  ${'─'.repeat(14)} ${'─'.repeat(10)} ${'─'.repeat(8)}`);
 
     for (const { label, data: ds } of slices) {
-      const { ms, result } = sampled(() => seaq(ds, 'san', { keys: ['name', 'state'] }));
+      const { ms, result } = sampled(() =>
+        seaq(ds, 'san', { keys: ['name', 'state'], cache: false }),
+      );
       console.log(
         `  ${label.padEnd(14)} ${fmt(ms).padStart(10)} ${String(result.length).padStart(8)}`,
       );
     }
 
-    console.log('\n  ^ Same function call. No index to build, rebuild, or invalidate.');
-    console.log('    Your list grew 1000x and you changed zero lines of code.');
+    console.log('\n  ^ Same function call. Nothing to build, rebuild, or invalidate —');
+    console.log('    repeat searches of a list index it automatically. Your list grew');
+    console.log('    1000x and you changed zero lines of code.');
     expect(true).toBe(true);
   });
 });
@@ -646,7 +651,10 @@ describe('SCENARIO 6: Dynamic data (index = wasted work)', () => {
     const rows: Row[] = [];
 
     const { ms: seaqMs } = sampled(() => {
-      for (const ds of datasets) seaq(ds, 'john', { keys: ['givenName', 'familyName'] });
+      // Data that changes every search arrives as a new array each time, which
+      // seaq never indexes by default — the same as cache: false
+      for (const ds of datasets)
+        seaq(ds, 'john', { keys: ['givenName', 'familyName'], cache: false });
     });
     rows.push({
       lib: 'seaq',
@@ -710,7 +718,8 @@ describe('SCENARIO 6: Dynamic data (index = wasted work)', () => {
 
     printTable('500 items, dataset changes each time (index = wasted work)', rows);
     console.log('\n  ^ When data changes between searches, index-based libraries pay the');
-    console.log('    build cost every time. seaq has no index — same speed regardless.');
+    console.log('    build cost every time. seaq only indexes an array it sees twice, so');
+    console.log('    new data is simply scanned.');
     expect(true).toBe(true);
   });
 });
@@ -748,6 +757,7 @@ describe('SCENARIO 7: The tradeoff — repeated search on pre-indexed data', () 
   test('single search on pre-indexed 10K contacts', () => {
     const rows: Row[] = [];
 
+    // seaq's default indexes an array on its second search, so this reuses it
     const { ms: seaqMs, result: seaqR } = sampled(() =>
       seaq(ManyContacts, 'nath', { keys: ['givenName', 'familyName'] }),
     );
@@ -756,6 +766,16 @@ describe('SCENARIO 7: The tradeoff — repeated search on pre-indexed data', () 
       ms: seaqMs,
       count: seaqR.length,
       top3: seaqR.slice(0, 3).map((c) => c.givenName),
+    });
+
+    const { ms: scanMs, result: scanR } = sampled(() =>
+      seaq(ManyContacts, 'nath', { keys: ['givenName', 'familyName'], cache: false }),
+    );
+    rows.push({
+      lib: 'seaq no index',
+      ms: scanMs,
+      count: scanR.length,
+      top3: scanR.slice(0, 3).map((c) => c.givenName),
     });
 
     const { ms: fsMs, result: fsR } = sampled(() => fuzzysort.go('nath', fsSnapshot));
@@ -802,8 +822,8 @@ describe('SCENARIO 7: The tradeoff — repeated search on pre-indexed data', () 
     });
 
     printTable('10K contacts, INDEX PRE-BUILT, search "nath"', rows);
-    console.log('\n  ^ Indexed libraries win on repeated queries against static data.');
-    console.log('    But seaq at ~3ms is still fine for interactive use (< 16ms frame budget).');
+    console.log('\n  ^ seaq indexes a list on its second search, so repeated queries on');
+    console.log('    static data reuse it. "seaq no index" (cache: false) rescans each time.');
     expect(true).toBe(true);
   });
 
@@ -815,6 +835,17 @@ describe('SCENARIO 7: The tradeoff — repeated search on pre-indexed data', () 
       for (const q of keystrokes) seaq(ManyContacts, q, { keys: ['givenName', 'familyName'] });
     });
     rows.push({ lib: 'seaq', ms: seaqMs, count: 7, top3: [`(${fmt(seaqMs / 7)}/keystroke)`] });
+
+    const { ms: scanMs } = sampled(() => {
+      for (const q of keystrokes)
+        seaq(ManyContacts, q, { keys: ['givenName', 'familyName'], cache: false });
+    });
+    rows.push({
+      lib: 'seaq no index',
+      ms: scanMs,
+      count: 7,
+      top3: [`(${fmt(scanMs / 7)}/keystroke)`],
+    });
 
     const { ms: fsMs } = sampled(() => {
       for (const q of keystrokes) fuzzysort.go(q, fsSnapshot);
@@ -847,8 +878,8 @@ describe('SCENARIO 7: The tradeoff — repeated search on pre-indexed data', () 
     rows.push({ lib: 'ufuzzy', ms: ufMs, count: 7, top3: [`(${fmt(ufMs / 7)}/keystroke)`] });
 
     printTable('7 keystrokes on 10K pre-indexed', rows);
-    console.log('\n  ^ seaq rescans every keystroke. Indexed libs reuse their index.');
-    console.log('    Even so, seaq v2 stays under 16ms/keystroke — fast enough for 60fps UI.');
+    console.log('\n  ^ seaq reuses its index across keystrokes; with cache: false it');
+    console.log('    rescans every keystroke.');
     expect(true).toBe(true);
   });
 });
@@ -875,7 +906,13 @@ describe('SCENARIO 8: seaq v1 → v2', () => {
     for (const q of queries) {
       const { ms: v1Ms, result: v1R } = sampled(() => seaqV1(Cities, q, cityKeys));
       const { ms: v2Ms, result: v2R } = sampled(() =>
-        seaq(Cities, q, { keys: cityKeys, fuzziness: 0, limit: Infinity, threshold: 0 }),
+        seaq(Cities, q, {
+          keys: cityKeys,
+          fuzziness: 0,
+          limit: Infinity,
+          threshold: 0,
+          cache: false,
+        }),
       );
       const speedup = v1Ms / v2Ms;
       console.log(
@@ -908,7 +945,7 @@ describe('SCENARIO 8: seaq v1 → v2', () => {
       const v1RawCount = seaqV1(Cities, q, cityKeys).length;
       // v2: same scoring engine (fuzz 0), but threshold drops garbage + heap avoids full sort
       const { ms: v2Ms, result: v2R } = sampled(() =>
-        seaq(Cities, q, { keys: cityKeys, fuzziness: 0, limit: 10, threshold: 0.3 }),
+        seaq(Cities, q, { keys: cityKeys, fuzziness: 0, limit: 10, threshold: 0.3, cache: false }),
       );
       const speedup = v1Ms / v2Ms;
       console.log(
@@ -934,25 +971,25 @@ describe('SUMMARY', () => {
   ║                        WHEN TO USE SEAQ                           ║
   ╠═════════════════════════════════════════════════════════════════════╣
   ║                                                                   ║
-  ║  seaq is competitive at any scale without an index.               ║
+  ║  seaq is competitive at any scale with zero setup.                ║
   ║  Your list can grow from 20 items to 20K — you change nothing.    ║
   ║                                                                   ║
   ║  ✓ USE seaq when:                                                 ║
-  ║    • You don't want to manage an index                            ║
+  ║    • You don't want to manage an index (seaq keeps its own)       ║
   ║    • Data is dynamic — changes each render, arrives from an API   ║
   ║    • List size is unpredictable (20 today, 20K tomorrow)          ║
   ║    • You need nested object / array traversal                     ║
-  ║    • You need acronym matching (NYC → New York City)              ║
+  ║    • Users type shorthand, acronyms, swapped letters or typos     ║
   ║    • You want 1 function call, 0 setup, 0 dependencies           ║
   ║                                                                   ║
   ║  ✗ Consider MiniSearch/Lunr when:                                 ║
-  ║    • Data is large AND static AND searched repeatedly             ║
   ║    • You need full-text features (stemming, stop words)           ║
+  ║    • Lists are huge and microseconds per keystroke matter         ║
   ║                                                                   ║
   ║  The mental model:                                                ║
   ║    seaq = Array.filter() with smart fuzzy scoring                 ║
-  ║    It doesn't need an index. It doesn't care how big your list    ║
-  ║    is. It just scans and scores — fast enough for any UI.         ║
+  ║    One-off searches just scan; a list you search again gets an    ║
+  ║    index automatically. Fast enough for any UI.                   ║
   ║                                                                   ║
   ╚═════════════════════════════════════════════════════════════════════╝`);
 

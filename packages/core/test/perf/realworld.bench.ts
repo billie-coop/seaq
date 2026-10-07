@@ -3,7 +3,8 @@
  *
  * Tests the scenario: you have a dataset, user types a search query.
  * For indexed libraries, index is pre-built (realistic for apps).
- * For seaq, it scans fresh each time (that's how it works).
+ * seaq builds its own index on the second search of an array by default, so
+ * repeated searches reuse it; "seaq (no index)" scans every time.
  */
 
 import uFuzzy from '@leeoniya/ufuzzy';
@@ -60,8 +61,8 @@ describe('10K contacts - search only (index pre-built)', () => {
       seaq(ManyContacts, queries.short, { keys: ['givenName', 'familyName'] });
     });
 
-    bench('seaq (cache)', () => {
-      seaq(ManyContacts, queries.short, { keys: ['givenName', 'familyName'], cache: true });
+    bench('seaq (no index)', () => {
+      seaq(ManyContacts, queries.short, { keys: ['givenName', 'familyName'], cache: false });
     });
 
     bench('fuse.js', () => {
@@ -90,8 +91,8 @@ describe('10K contacts - search only (index pre-built)', () => {
       seaq(ManyContacts, queries.medium, { keys: ['givenName', 'familyName'] });
     });
 
-    bench('seaq (cache)', () => {
-      seaq(ManyContacts, queries.medium, { keys: ['givenName', 'familyName'], cache: true });
+    bench('seaq (no index)', () => {
+      seaq(ManyContacts, queries.medium, { keys: ['givenName', 'familyName'], cache: false });
     });
 
     bench('fuse.js', () => {
@@ -120,8 +121,8 @@ describe('10K contacts - search only (index pre-built)', () => {
       seaq(ManyContacts, queries.long, { keys: ['givenName', 'familyName'] });
     });
 
-    bench('seaq (cache)', () => {
-      seaq(ManyContacts, queries.long, { keys: ['givenName', 'familyName'], cache: true });
+    bench('seaq (no index)', () => {
+      seaq(ManyContacts, queries.long, { keys: ['givenName', 'familyName'], cache: false });
     });
 
     bench('fuse.js', () => {
@@ -156,9 +157,9 @@ describe('10K contacts - simulated typing (index pre-built)', () => {
     }
   });
 
-  bench('seaq (cache)', () => {
+  bench('seaq (no index)', () => {
     for (const query of keystrokes) {
-      seaq(ManyContacts, query, { keys: ['givenName', 'familyName'], cache: true });
+      seaq(ManyContacts, query, { keys: ['givenName', 'familyName'], cache: false });
     }
   });
 
@@ -196,10 +197,12 @@ describe('10K contacts - simulated typing (index pre-built)', () => {
 // Cold start - no pre-built index, user searches immediately
 describe('10K contacts - cold start (build + search)', () => {
   bench('seaq', () => {
-    seaq(ManyContacts, queries.medium, { keys: ['givenName', 'familyName'] });
+    // cache: false — a truly cold scan (by default, repeating the same array
+    // would build and reuse an index)
+    seaq(ManyContacts, queries.medium, { keys: ['givenName', 'familyName'], cache: false });
   });
 
-  bench('seaq (cache, fresh array)', () => {
+  bench('seaq (cache: true, fresh array)', () => {
     // A new array each iteration, so the index is built every time
     seaq(ManyContacts.slice(), queries.medium, { keys: ['givenName', 'familyName'], cache: true });
   });

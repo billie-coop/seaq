@@ -54,11 +54,11 @@ function q(s: string): string {
 function seaqSnippet(query: string, keys: string[], config: SeaqConfig): string {
   const opts: string[] = [];
   if (keys.length > 0) opts.push(`keys: [${keys.map(q).join(', ')}]`);
-  if (config.fuzziness !== 0) opts.push(`fuzziness: ${config.fuzziness}`);
+  if (config.fuzziness !== 0.2) opts.push(`fuzziness: ${config.fuzziness}`);
   if (config.fieldMode !== 'joined') opts.push(`fieldMode: '${config.fieldMode}'`);
   if (config.limit != null && config.limit !== 10) opts.push(`limit: ${config.limit}`);
   if (config.threshold !== 0.3) opts.push(`threshold: ${config.threshold}`);
-  if (config.cache) opts.push(`cache: true`);
+  if (config.cache !== 'auto') opts.push(`cache: ${config.cache}`);
   const optsStr = opts.length > 0 ? `, {\n  ${opts.join(',\n  ')}\n}` : '';
   return `seaq(data, ${q(query)}${optsStr})`;
 }
@@ -321,12 +321,12 @@ function SeaqControls({
     <>
       <Select
         label="Fuzziness"
-        hint="Tolerance for letters that aren't there. 0 = every letter must exist (shorthand, swaps and word order still match)."
+        hint="Tolerance for letters that aren't there. 0 = every letter must exist; shorthand, swaps and word order match either way."
         value={config.fuzziness}
         options={[
-          { value: '0', label: '0 (default)' },
+          { value: '0.2', label: '0.2 (default)' },
+          { value: '0', label: '0 (strict)' },
           { value: '0.1', label: '0.1' },
-          { value: '0.2', label: '0.2' },
           { value: '0.3', label: '0.3' },
           { value: '0.5', label: '0.5' },
           { value: '0.8', label: '0.8' },
@@ -371,11 +371,16 @@ function SeaqControls({
         ]}
         onChange={(v) => onChange({ limit: v === 'off' ? undefined : Number(v) })}
       />
-      <Check
+      <Select
         label="Cache (index)"
-        hint="Index the list on first search and reuse it. Same results, much faster repeat searches. Separate mode caches per item instead."
-        checked={config.cache}
-        onChange={(v) => onChange({ cache: v })}
+        hint="Index reused across searches; same results. Auto indexes on the 2nd search of a list. Separate mode only caches when on."
+        value={String(config.cache)}
+        options={[
+          { value: 'auto', label: 'auto (default)' },
+          { value: 'true', label: 'on' },
+          { value: 'false', label: 'off' },
+        ]}
+        onChange={(v) => onChange({ cache: v === 'auto' ? 'auto' : v === 'true' })}
       />
     </>
   );
