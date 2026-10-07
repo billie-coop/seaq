@@ -12,13 +12,14 @@
   "scripts": {
     "build": "yarn workspaces foreach -A run build",
     "test": "yarn workspaces foreach -A run test",
+    "coverage": "yarn workspace seaq test:coverage",
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "ts-check": "tsc --build --incremental",
     "dev": "yarn workspace seaq build && (yarn workspace seaq dev & yarn workspace @seaq/docs dev & wait)",
     "clean": "rm -rf .tsc-out packages/*/dist",
     "bench:save": "yarn workspace seaq bench:save",
-    "release:verify": "yarn ts-check && yarn check && yarn test && yarn build",
+    "release:verify": "yarn ts-check && yarn check && yarn test && yarn coverage && yarn build",
     "release:pack": "cd packages/core && npm pack --dry-run"
   },
   "devDependencies": {

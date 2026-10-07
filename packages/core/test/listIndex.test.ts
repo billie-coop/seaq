@@ -9,7 +9,6 @@ import Cities from '@seaq/test-data/cities.json';
 import Contacts from '@seaq/test-data/contacts-1k.json';
 import { describe, expect, test } from 'vitest';
 import { type SeaqOptions, seaq } from '../src/index';
-import { planQuery, scoreString, scoreTarget } from '../src/score';
 
 const contacts = Contacts as Contact[];
 const cities = (Cities as City[]).slice(0, 3000);
@@ -131,7 +130,7 @@ describe('list changes are picked up', () => {
     compare(list, 'ma', { keys, fuzziness: 0.2 });
   });
 
-  test('many replacements (packed buffer compaction)', () => {
+  test('many replacements', () => {
     const list = names.slice(0, 60);
     for (let round = 0; round < 40; round++) {
       for (let i = 0; i < list.length; i += 3)
@@ -146,64 +145,6 @@ describe('list changes are picked up', () => {
     compare(list, 'an', { fuzziness: 0 });
     list[0] = 'Andromeda Anderson';
     compare(list, 'and', { fuzziness: 0 });
-  });
-});
-
-describe('scoring a packed slot matches scoring the string', () => {
-  // Deterministic PRNG so failures reproduce
-  let seed = 12345;
-  const rand = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-  // Includes characters whose lowercase form has a different length
-  // (İ → i̇), multi-unit characters, digits, spaces and punctuation
-  const alphabet = [
-    'a',
-    'b',
-    'n',
-    'A',
-    'N',
-    ' ',
-    ' ',
-    'é',
-    'É',
-    'İ',
-    'ß',
-    '1',
-    '-',
-    '😀',
-    'x',
-    'Z',
-  ];
-  const randomString = (max: number) => {
-    let out = '';
-    const len = Math.floor(rand() * max);
-    for (let i = 0; i < len; i++) out += alphabet[Math.floor(rand() * alphabet.length)];
-    return out;
-  };
-
-  test('random strings, queries and fuzziness, with neighbours in the buffer', () => {
-    for (let n = 0; n < 20000; n++) {
-      const raw = rand() < 0.1 ? '' : randomString(14);
-      const query =
-        rand() < 0.2 && raw
-          ? raw.slice(0, 1 + Math.floor(rand() * raw.length))
-          : randomString(6) || 'a';
-      const fuzziness = [0, 0.2, 0.5, 1][Math.floor(rand() * 4)] as number;
-      const plan = planQuery(query);
-      const lower = raw.toLowerCase();
-      // Pad the slot with matching characters on both sides
-      const codes = new Uint16Array(lower.length + 2).fill(0x61);
-      for (let i = 0; i < lower.length; i++) codes[i + 1] = lower.charCodeAt(i);
-      const p1: number[] = [];
-      const p2: number[] = [];
-      const packed = scoreTarget(plan, raw, codes, 1, lower.length + 1, fuzziness, p1);
-      const plain = scoreString(plan, raw, lower, fuzziness, p2);
-      if (packed !== plain || p1.join() !== p2.join()) {
-        throw new Error(`mismatch for ${JSON.stringify({ raw, query, fuzziness, packed, plain })}`);
-      }
-    }
   });
 });
 

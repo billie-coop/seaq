@@ -168,15 +168,16 @@ describe('seaq - multi-word separate mode (regression target)', () => {
 });
 
 describe('seaq - top 10 results (slice vs limit)', () => {
-  bench('10,000-contacts - slice(0,10) [current way]', () => {
+  bench('10,000-contacts - limit: Infinity, then slice(0,10)', () => {
     scan(ManyContacts, 'na', {
       keys: ['givenName', 'familyName'],
       fieldMode: 'joined',
       fuzziness: 0,
+      limit: Number.POSITIVE_INFINITY,
     }).slice(0, 10);
   });
 
-  bench('10,000-contacts - limit: 10 [optimized]', () => {
+  bench('10,000-contacts - limit: 10', () => {
     scan(ManyContacts, 'na', {
       keys: ['givenName', 'familyName'],
       fieldMode: 'joined',

@@ -3,7 +3,7 @@ import ContactsRaw from '@seaq/test-data/contacts-1k.json';
 import ManyContactsRaw from '@seaq/test-data/contacts-10k.json';
 import { describe, expect, test } from 'vitest';
 import { type SeaqResult, seaq } from '../src/index';
-import { charMask } from '../src/Seaq';
+import { charMask } from '../src/score';
 
 const Contacts = ContactsRaw as Contact[];
 const ManyContacts = ManyContactsRaw as Contact[];
@@ -78,11 +78,12 @@ describe('large collection', () => {
       limit: Infinity,
       threshold: 0,
     });
-    // Nathan Evans ×3 and Nathan Stevens first; then Anthony Evans/Stevens,
-    // where "nath" matches "anth" with one adjacent swap (lower score)
-    expect(searchResults).toHaveLength(8);
-    expect(searchResults.slice(0, 4).every((c) => c.givenName === 'Nathan')).toBe(true);
-    expect(searchResults.slice(4).every((c) => c.givenName === 'Anthony')).toBe(true);
+    // Nathan Evans ×3, Nathan Stevens and Nathan Chavez ("ev" swapped in
+    // "ve") first; then Anthony Evans/Stevens, where "nath" matches "anth"
+    // with one adjacent swap, and weaker swaps after skipped text
+    expect(searchResults).toHaveLength(13);
+    expect(searchResults.slice(0, 5).map((c) => c.givenName)).toEqual(Array(5).fill('Nathan'));
+    expect(searchResults.slice(5, 9).map((c) => c.givenName)).toEqual(Array(4).fill('Anthony'));
   });
 
   test('fuzzy search', () => {
@@ -122,7 +123,8 @@ describe('large collection', () => {
       limit: Infinity,
       threshold: 0,
     });
-    expect(searchResults).toHaveLength(263);
+    // Includes weak matches with "li" swapped in "gmail"
+    expect(searchResults).toHaveLength(305);
     expect(searchResults[0]).toMatchObject({ givenName: 'Julie' });
   });
 });
