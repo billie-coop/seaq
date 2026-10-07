@@ -102,6 +102,21 @@ seaq(contacts, 'john smith', { keys: ['firstName', 'lastName'] });
 // Matches even though "john" is in firstName and "smith" is in lastName
 ```
 
+### Other languages
+
+seaq matches Unicode text, so it isn't limited to English: Cyrillic, Greek, Arabic, Hebrew, Hindi, Korean, Chinese, Japanese, emoji and so on all match and highlight correctly.
+
+```typescript
+seaq(['Лев Толстой', 'Антон Чехов'], 'толст'); // ['Лев Толстой']
+seaq(['北京市', '北京大学', '南京大学'], '北大'); // ['北京大学', '北京市']
+```
+
+Your mileage may vary, though. Ranking was tuned on English, and a few things are deliberately simple:
+
+- Word starts (for acronyms like "NYC") are found after spaces, so Chinese, Japanese and Thai get plain in-order matching without that bonus.
+- Accents aren't ignored ("jose" finds "José" only as a weaker fuzzy match), and text isn't Unicode-normalized.
+- There's no transliteration: "beijing" won't find "北京", and hiragana won't match katakana.
+
 ### Match highlighting
 
 Set `includeMatches: true` to get character-level match positions for building highlighted search results. Matches are reported per field in both field modes -- each entry names the `key` that matched and gives `indices` relative to that field's value:
@@ -121,7 +136,7 @@ const results = seaq(contacts, 'john smith', {
 // }]
 ```
 
-Match positions are only computed for the final (post-limit) results, so `includeMatches` adds near-zero cost to the scoring phase.
+Match positions are only computed for the returned results, so `includeMatches` costs under 5% (see [BENCHMARKS.md](https://github.com/billie-coop/seaq/blob/main/BENCHMARKS.md#includematches-overhead)).
 
 ### Repeated searches (typeahead)
 
