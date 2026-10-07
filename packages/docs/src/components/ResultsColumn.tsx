@@ -28,6 +28,11 @@ interface ResultsColumnProps {
   active: boolean;
 }
 
+function formatTime(ms: number): string {
+  if (ms < 1) return `${Math.round(ms * 1000)}µs`;
+  return `${ms.toFixed(ms < 10 ? 2 : 1)}ms`;
+}
+
 function timingColor(ms: number): string {
   if (ms < 5) return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
   if (ms < 50) return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
@@ -367,8 +372,8 @@ function SeaqControls({
         onChange={(v) => onChange({ limit: v === 'off' ? undefined : Number(v) })}
       />
       <Check
-        label="Cache"
-        hint="Reuse prepared strings across searches (typeahead on static data)."
+        label="Cache (index)"
+        hint="Index the list on first search and reuse it. Same results, much faster repeat searches. Separate mode caches per item instead."
         checked={config.cache}
         onChange={(v) => onChange({ cache: v })}
       />
@@ -779,7 +784,7 @@ export function ResultsColumn(props: ResultsColumnProps) {
             <span
               className={`rounded-full px-2 py-0.5 text-xs font-medium ${timingColor(result.timeMs)}`}
             >
-              {result.timeMs.toFixed(1)}ms
+              {formatTime(result.timeMs)}
             </span>
           )}
         </div>
