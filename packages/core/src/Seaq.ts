@@ -1,6 +1,3 @@
-/**
- * Seaq is a Fuzzy searching utility function.
- */
 import { type Scored, scoreIndexed } from './listIndex';
 import {
   charMask,
@@ -42,14 +39,7 @@ export interface SeaqResult<T> {
   matches: SeaqMatch[];
 }
 
-/**
- * Configuration for {@link seaq} search behavior.
- *
- * All options are optional — calling `seaq(list, query)` with no options
- * searches a plain string array with light typo tolerance: shorthand
- * ("steplau"), acronyms ("NYC"), adjacent swaps ("laguht"), words in any
- * order and the odd missing character all match.
- */
+/** Options for {@link seaq}. All are optional. */
 export interface SeaqOptions<T> {
   /**
    * Object keys to search. Supports:
@@ -82,17 +72,15 @@ export interface SeaqOptions<T> {
    *   into one string before scoring. Supports cross-field queries like
    *   "john smith" matching firstName="John" + lastName="Smith", and
    *   concatenated prefixes like "helgre" matching "Helen Green".
-   * - `'separate'` — scores each field independently and takes the best match.
-   *   More precise for single-field queries but cannot match across field boundaries.
+   * - `'separate'` — scores each field value on its own and keeps the best.
+   *   Different query words may still match different fields, but one word
+   *   can't span two fields ("helgre" won't match "Helen" + "Green").
    */
   fieldMode?: 'joined' | 'separate';
   /**
    * Maximum number of results to return. Default: `10`.
    *
-   * Uses a min-heap internally for O(n log k) selection instead of
-   * O(n log n) full sort, so this is significantly faster than sorting
-   * everything and calling `.slice(0, n)` on large result sets.
-   *
+   * Selects the top results with a heap instead of sorting every match.
    * Set to `Infinity` to return all matches (not recommended for large lists).
    * `0` or a negative limit returns `[]`.
    */
@@ -101,8 +89,8 @@ export interface SeaqOptions<T> {
    * Relative score cutoff — results below `topScore * threshold` are dropped.
    *
    * - `0.3` (default) — keeps results scoring at least 30% of the best match
-   * - `0` — no filtering, returns everything with score > 0 (old behavior)
-   * - `1` — only perfect/near-perfect matches
+   * - `0` — no filtering, returns everything with score > 0
+   * - `1` — only results tied with the best score, however low it is
    *
    * Note: higher = stricter. This is the opposite polarity of Fuse.js's
    * `threshold`, where lower values are stricter.
@@ -114,9 +102,8 @@ export interface SeaqOptions<T> {
    * Useful for building search-result highlighting.
    *
    * Matches are per field value in both field modes: each entry has `key`
-   * set and `indices` relative to that field's `value`. Match positions are
-   * only computed for the final (post-limit) results, so this adds near-zero
-   * cost to the scoring phase.
+   * set and `indices` relative to that field's `value`. Positions are only
+   * worked out for the returned results.
    */
   includeMatches?: boolean;
   /**
@@ -129,8 +116,7 @@ export interface SeaqOptions<T> {
    * - `true` — build the index on the first search
    * - `false` — never index; every search re-reads the items
    *
-   * The index records which character classes each item contains, so
-   * searches only score items that can make the results. Added, removed or
+   * Added, removed or
    * replaced items are detected; an item **mutated in place is not** —
    * replace the object, or pass `cache: false`.
    *
@@ -158,30 +144,6 @@ export interface SeaqOptions<T> {
  * seaq(contacts, 'john', { keys: ['name', 'email'] })
  *
  * @example
- * // Cross-field matching with joined mode
- * seaq(contacts, 'john smith', { keys: ['firstName', 'lastName'], fieldMode: 'joined' })
- *
- * @example
- * // Shorthand, swapped letters and word order work by default
- * seaq(contacts, 'laguht steph', { keys: ['name'] })
- *
- * @example
- * // Strict: every character must be found
- * seaq(contacts, 'steph', { keys: ['name'], fuzziness: 0 })
- *
- * @example
- * // Nested property + array traversal
- * seaq(users, 'admin', { keys: ['roles.name'] })
- *
- * @example
- * // Tighter cap than the default limit of 10
- * seaq(contacts, 'john', { keys: ['name'], limit: 3 })
- *
- * @example
- * // Items edited in place between searches — turn the index off
- * seaq(contacts, 'john', { keys: ['name'], cache: false })
- *
- * @example
  * // Search a plain string array (no keys needed)
  * seaq(['apple', 'banana'], 'app')
  */
@@ -198,8 +160,7 @@ export function seaq<T>(
 ): Array<T> | SeaqResult<T>[] {
   const keys = options?.keys as string[] | undefined;
   const rawFuzziness = options?.fuzziness ?? 0.2;
-  // Clamp to the documented [0, 1] range — fuzziness > 1 would flip the
-  // miss penalty into a score bonus inside the scorer
+  // Above 1, the miss penalty would turn into a bonus
   const fuzziness = rawFuzziness < 0 ? 0 : rawFuzziness > 1 ? 1 : rawFuzziness;
   const separate = keys !== undefined && options?.fieldMode === 'separate';
   const limit = options?.limit ?? 10;
@@ -209,16 +170,11 @@ export function seaq<T>(
   if (!query.trim() || limit <= 0) return [];
 
   const plan = planQuery(query);
-  // Split dot-notation paths once per call instead of per segment per item
   const paths = keys?.map((key) => ({ key, path: key.split('.') }));
   const prep: (item: T) => string = paths
     ? (item) => buildJoinedString(item, paths)
     : keylessString;
 
-  // Joined mode and keyless lists use the list index: always with
-  // cache: true, never with cache: false, and by default from the second
-  // search of the same array on (one-off searches don't pay to build it).
-  // Separate mode's cache stays per item and is opt-in.
   const { items: scored, maxScore } =
     paths && separate
       ? scoreSeparate(list, plan, paths, fuzziness, cache === true)
@@ -229,8 +185,6 @@ export function seaq<T>(
   const sorted = getTopN(scored, limit, maxScore * threshold);
   if (!options?.includeMatches) return sorted.map((m) => m.item);
 
-  // Match positions are computed only for the finalists — scoring never
-  // pays for position collection
   return sorted.map(({ item, score }) => ({
     item,
     score,
@@ -242,19 +196,14 @@ export function seaq<T>(
   }));
 }
 
-/** A search key and its dot-notation path, split. */
 interface KeyPath {
   key: string;
   path: string[];
 }
 
-/** Arrays searched at least once with the default `cache` setting. */
+/** Arrays searched with the default `cache` setting; their second search builds an index. */
 const searched = new WeakSet<object>();
 
-/**
- * Whether `list` was searched before (with the default `cache` setting).
- * Records it either way, so the second search of an array builds its index.
- */
 function searchedBefore(list: object): boolean {
   if (searched.has(list)) return true;
   searched.add(list);
@@ -262,13 +211,10 @@ function searchedBefore(list: object): boolean {
 }
 
 /**
- * Score every item's search string (joined mode or keyless), without an
- * index. Items scoring 0 are left out.
- *
- * In strict mode with keys, a character-class gate rejects most items
- * before scoring. Without keys it doesn't pay: objects are matched as long
- * JSON strings, where building the mask costs more than the native
- * `indexOf` scan that rejects them.
+ * Joined mode or keyless, without an index. Strict searches with keys skip
+ * items missing a query character class before scoring. Without keys,
+ * objects are long JSON strings, and building their mask measured slower
+ * than letting the scorer reject them.
  */
 function scoreScan<T>(
   list: T[],
@@ -305,13 +251,9 @@ function keylessString(item: unknown): string {
 }
 
 /**
- * Get top N items by score using a min-heap for efficiency.
- * O(n log k) instead of O(n log n) for full sort.
- * Items scoring below `cutoff` are skipped without entering the heap.
- *
- * Ties keep list order (like the stable sort used when everything fits),
- * so the result doesn't depend on which lower-scoring items passed through
- * the heap along the way.
+ * The top `n` items scoring at least `cutoff`, best first. Ties keep list
+ * order, as the stable sort does when everything fits, so the result doesn't
+ * depend on which items passed through the heap.
  */
 function getTopN<T>(items: Array<Scored<T>>, n: number, cutoff: number): Array<Scored<T>> {
   if (items.length <= n) {
@@ -321,7 +263,6 @@ function getTopN<T>(items: Array<Scored<T>>, n: number, cutoff: number): Array<S
   // Min-heap of positions in `items`, worst at the root: lower score is
   // worse, and on equal scores the later position is worse
   const heap: number[] = [];
-  // biome-ignore lint/style/noNonNullAssertion: heap only holds valid positions
   const score = (pos: number) => items[pos]!.score;
   const worse = (a: number, b: number) => {
     const sa = score(a);
@@ -334,7 +275,6 @@ function getTopN<T>(items: Array<Scored<T>>, n: number, cutoff: number): Array<S
     if (s < cutoff) continue;
     if (heap.length < n) {
       heapPush(heap, i, worse);
-      // biome-ignore lint/style/noNonNullAssertion: heap is full (length === n > 0)
     } else if (s > score(heap[0]!)) {
       // Later positions only win on a strictly higher score
       heap[0] = i;
@@ -342,12 +282,9 @@ function getTopN<T>(items: Array<Scored<T>>, n: number, cutoff: number): Array<S
     }
   }
 
-  // Pop worst-first, then reverse for best-first
   const result: Array<Scored<T>> = [];
   while (heap.length > 0) {
-    // biome-ignore lint/style/noNonNullAssertion: heap is non-empty
     result.push(items[heap[0]!]!);
-    // biome-ignore lint/style/noNonNullAssertion: heap is non-empty
     const last = heap.pop()!;
     if (heap.length > 0) {
       heap[0] = last;
@@ -357,7 +294,6 @@ function getTopN<T>(items: Array<Scored<T>>, n: number, cutoff: number): Array<S
   return result.reverse();
 }
 
-// Min-heap operations over item positions (worst at root)
 type Worse = (a: number, b: number) => boolean;
 
 function heapPush(heap: number[], pos: number, worse: Worse): void {
@@ -365,18 +301,14 @@ function heapPush(heap: number[], pos: number, worse: Worse): void {
   let i = heap.length - 1;
   while (i > 0) {
     const parent = (i - 1) >> 1;
-    // biome-ignore lint/style/noNonNullAssertion: i and parent in-bounds; hot path
     if (!worse(heap[i]!, heap[parent]!)) break;
-    // biome-ignore lint/style/noNonNullAssertion: same in-bounds guarantee as above
     const tmp = heap[i]!;
-    // biome-ignore lint/style/noNonNullAssertion: same in-bounds guarantee as above
     heap[i] = heap[parent]!;
     heap[parent] = tmp;
     i = parent;
   }
 }
 
-/** Restore the heap after replacing its root. */
 function heapifyDown(heap: number[], worse: Worse): void {
   const len = heap.length;
   let i = 0;
@@ -385,25 +317,18 @@ function heapifyDown(heap: number[], worse: Worse): void {
     const right = 2 * i + 2;
     let smallest = i;
 
-    // biome-ignore lint/style/noNonNullAssertion: left < len guard; smallest in-bounds; hot path
     if (left < len && worse(heap[left]!, heap[smallest]!)) smallest = left;
-    // biome-ignore lint/style/noNonNullAssertion: right < len guard; smallest in-bounds; hot path
     if (right < len && worse(heap[right]!, heap[smallest]!)) smallest = right;
     if (smallest === i) break;
 
-    // biome-ignore lint/style/noNonNullAssertion: i and smallest both in-bounds by guards above
     const tmp = heap[i]!;
-    // biome-ignore lint/style/noNonNullAssertion: i and smallest both in-bounds by guards above
     heap[i] = heap[smallest]!;
     heap[smallest] = tmp;
     i = smallest;
   }
 }
 
-/**
- * Score `value` with positions and wrap it as a match. Only called for
- * strings that scored > 0, so at least one position is found.
- */
+/** Only called for values that scored > 0, so some position is found. */
 function singleMatch(
   value: string,
   plan: QueryPlan,
@@ -418,14 +343,12 @@ function singleMatch(
   return match;
 }
 
-/** Collapse ascending, non-empty match positions into inclusive [start, end] ranges. */
+/** Ascending, non-empty positions as inclusive [start, end] ranges. */
 function positionsToRanges(positions: number[]): [number, number][] {
   const ranges: [number, number][] = [];
-  // biome-ignore lint/style/noNonNullAssertion: non-empty by precondition
   let start = positions[0]!;
   let end = start;
   for (let i = 1; i < positions.length; i++) {
-    // biome-ignore lint/style/noNonNullAssertion: i < positions.length by loop guard
     const p = positions[i]!;
     if (p === end + 1) {
       end = p;
@@ -439,21 +362,13 @@ function positionsToRanges(positions: number[]): [number, number][] {
   return ranges;
 }
 
-/**
- * Build the joined search string for an item: every leaf value from every
- * key, space-separated, in key order.
- */
 function buildJoinedString(item: unknown, paths: KeyPath[]): string {
   const acc: string[] = [];
   for (const { path } of paths) collectValues(item, path, 0, acc);
   return acc.join(' ');
 }
 
-/**
- * Joined-mode matches: rebuild the joined string, score it with positions
- * and split them into per-field matches with field-relative indices.
- * Positions on the spaces between fields are dropped.
- */
+/** Splits the joined string's positions per field value, dropping the separators. */
 function joinedMatches(
   item: unknown,
   plan: QueryPlan,
@@ -476,24 +391,20 @@ function joinedMatches(
   let p = 0;
   let start = 0;
   for (let v = 0; v < values.length; v++) {
-    // biome-ignore lint/style/noNonNullAssertion: v < values.length
     const value = values[v]!;
     const end = start + value.length;
     const own: number[] = [];
-    // biome-ignore lint/style/noNonNullAssertion: p < positions.length
     for (; p < positions.length && positions[p]! <= end; p++) {
-      // biome-ignore lint/style/noNonNullAssertion: p < positions.length
       if (positions[p]! < end) own.push(positions[p]! - start);
     }
     if (own.length > 0) {
       matches.push({ key: valueKeys[v], value, indices: positionsToRanges(own), score });
     }
-    start = end + 1; // past the ' ' separator
+    start = end + 1;
   }
   return matches;
 }
 
-/** A field's values, prepared for separate-mode scoring. */
 interface Field {
   key: string;
   values: string[];
@@ -520,12 +431,6 @@ function prepareFields(item: unknown, paths: KeyPath[]): Field[] {
 /** Prepared fields cached per item (`cache: true`), then per keys. */
 const fieldCache = new WeakMap<object, Map<string, Field[]>>();
 
-/**
- * Separate mode: score each field value on its own and keep the best. For
- * multi-word queries, each word also finds its best field value on its own
- * (so "john smith" can match firstName + lastName), and the average of those
- * counts when it's higher.
- */
 function scoreSeparate<T>(
   list: T[],
   plan: QueryPlan,
@@ -539,7 +444,6 @@ function scoreSeparate<T>(
   let maxScore = 0;
 
   for (const item of list) {
-    // null/undefined entries (sparse arrays, optional data) never match
     if (item === null || item === undefined) continue;
 
     let fields: Field[] | undefined;
@@ -566,7 +470,6 @@ function scoreSeparate<T>(
   return { items, maxScore };
 }
 
-/** Separate-mode matches: the field values that won, scored with positions. */
 function separateMatches(
   item: unknown,
   plan: QueryPlan,
@@ -593,19 +496,15 @@ function scoreFields(
   fuzziness: number,
   matches: SeaqMatch[] | null,
 ): number {
-  // The whole query against each value
   let whole = 0;
   let wholeField = 0;
   let wholeValue = 0;
   for (let fi = 0; fi < fields.length; fi++) {
-    // biome-ignore lint/style/noNonNullAssertion: fi < fields.length
     const { values, lowers, masks } = fields[fi]!;
     for (let vi = 0; vi < values.length; vi++) {
-      // biome-ignore lint/style/noNonNullAssertion: values, lowers and masks are parallel
       const mask = masks[vi]!;
       // Bitmask gate. Strict: a query class is missing. Fuzzy: no overlap.
       if (fuzziness ? (plan.mask & mask) === 0 : (plan.mask & ~mask) !== 0) continue;
-      // biome-ignore lint/style/noNonNullAssertion: values, lowers and masks are parallel
       const s = scoreString(plan, values[vi]!, lowers[vi]!, -1, fuzziness);
       if (s > whole) {
         whole = s;
@@ -615,27 +514,22 @@ function scoreFields(
     }
   }
 
-  // Each word against each value, keeping each word's best. Only when the
-  // whole query didn't match perfectly, and every word matches some value
-  // strictly — a cheap check that rules out most items.
+  // Each word against each value, keeping each word's best, when every word
+  // matches some value strictly
   if (wordPlans !== null && whole < 1 && everyWordMatches(fields, wordPlans)) {
     const n = wordPlans.length;
-    // Winning [field, value] per word, only for matches
+    // [field, value] of each word's best, for highlights
     const wins: number[] | null = matches ? [] : null;
     let sum = 0;
     let w = 0;
     for (; w < n; w++) {
-      // biome-ignore lint/style/noNonNullAssertion: w < n
       const wp = wordPlans[w]!;
       let best = 0;
       for (let fi = 0; fi < fields.length; fi++) {
-        // biome-ignore lint/style/noNonNullAssertion: fi < fields.length
         const { values, lowers, masks } = fields[fi]!;
         for (let vi = 0; vi < values.length; vi++) {
-          // biome-ignore lint/style/noNonNullAssertion: values, lowers and masks are parallel
           const mask = masks[vi]!;
           if (fuzziness ? (wp.mask & mask) === 0 : (wp.mask & ~mask) !== 0) continue;
-          // biome-ignore lint/style/noNonNullAssertion: values, lowers and masks are parallel
           const s = scoreString(wp, values[vi]!, lowers[vi]!, -1, fuzziness);
           if (s > best) {
             best = s;
@@ -650,15 +544,11 @@ function scoreFields(
       // Give up once even perfect scores for the remaining words can't win
       if ((sum + n - w - 1) / n <= whole) break;
     }
-    // Not given up: the average beats the whole-query score
     if (w === n) {
       if (matches && wins) {
         for (let i = 0; i < n; i++) {
-          // biome-ignore lint/style/noNonNullAssertion: every word has a winner
           const field = fields[wins[2 * i]!]!;
-          // biome-ignore lint/style/noNonNullAssertion: every word has a winner
           const value = field.values[wins[2 * i + 1]!]!;
-          // biome-ignore lint/style/noNonNullAssertion: i < n
           matches.push(singleMatch(value, wordPlans[i]!, fuzziness, null, field.key));
         }
       }
@@ -667,26 +557,19 @@ function scoreFields(
   }
 
   if (matches) {
-    // A result that the words didn't win scored above 0 on the whole query
-    // biome-ignore lint/style/noNonNullAssertion: wholeField is a valid field
     const field = fields[wholeField]!;
-    // biome-ignore lint/style/noNonNullAssertion: wholeValue is a valid value
     matches.push(singleMatch(field.values[wholeValue]!, plan, fuzziness, null, field.key));
   }
   return whole;
 }
 
-/** Does every one-word plan match some field value strictly? */
 function everyWordMatches(fields: Field[], wordPlans: QueryPlan[]): boolean {
   for (const wp of wordPlans) {
-    // biome-ignore lint/style/noNonNullAssertion: a one-word plan
     const word = wp.lowerWords[0]!;
     let found = false;
     for (let fi = 0; fi < fields.length && !found; fi++) {
-      // biome-ignore lint/style/noNonNullAssertion: fi < fields.length
       const { lowers, masks } = fields[fi]!;
       for (let vi = 0; vi < lowers.length && !found; vi++) {
-        // biome-ignore lint/style/noNonNullAssertion: lowers and masks are parallel
         found = (wp.mask & ~masks[vi]!) === 0 && matchesStrict(lowers[vi]!, word);
       }
     }
@@ -695,7 +578,7 @@ function everyWordMatches(fields: Field[], wordPlans: QueryPlan[]): boolean {
   return true;
 }
 
-/** Push the string form of a leaf value onto `list` (skips null/undefined). */
+/** Skips null and undefined; objects are JSON. */
 function collectLeaf(value: unknown, list: string[]): void {
   if (typeof value === 'string') {
     list.push(value);
@@ -706,35 +589,26 @@ function collectLeaf(value: unknown, list: string[]): void {
   }
 }
 
-/**
- * Walk a pre-split property path, collecting all leaf values as strings.
- * Arrays are traversed automatically at any level.
- */
+/** Leaf values along `segments` as strings, walking into arrays at any level. */
 function collectValues(obj: unknown, segments: string[], segIdx: number, list: string[]): string[] {
   if (segIdx >= segments.length) {
     collectLeaf(obj, list);
     return list;
   }
-  // Cheap null/undefined guard: indexing null/undefined throws, but primitives
-  // (string/number/etc.) safely return undefined for non-numeric keys, so we
-  // skip the typeof check and let the value guard below filter those.
+  // Indexing a primitive gives undefined, so only null/undefined need a guard
   if (obj == null) return list;
 
-  // biome-ignore lint/style/noNonNullAssertion: segIdx < segments.length by guard above
   const value = (obj as Record<string, unknown>)[segments[segIdx]!];
   if (value === null || value === undefined) return list;
 
   const isLast = segIdx === segments.length - 1;
   if (isLast && (typeof value === 'string' || typeof value === 'number')) {
-    // Fast path for primitive leaves - avoid the generic leaf handling
     list.push(typeof value === 'string' ? value : String(value));
   } else if (Array.isArray(value)) {
-    // Search each item in the array.
     for (let i = 0, len = value.length; i < len; i += 1) {
       collectValues(value[i], segments, segIdx + 1, list);
     }
   } else if (!isLast) {
-    // An object. Recurse further.
     collectValues(value, segments, segIdx + 1, list);
   } else {
     collectLeaf(value, list);

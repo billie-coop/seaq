@@ -123,10 +123,8 @@ describe('scoreString', () => {
 
   describe('consecutive bonus after fuzzy skip', () => {
     test('skipped char should not grant consecutive bonus to next match', () => {
-      // "btn" vs "tsconfig.json": 'b' is not found (fuzzy skip), then 't' at
-      // index 0 should NOT get the 0.7 consecutive bonus just because startAt
-      // hasn't moved. This is a false positive — 't' is not consecutive with
-      // any matched character.
+      // "btn" vs "tsconfig.json": 'b' is missing, so 't' at index 0 must not
+      // count as continuing a run
       const tsconfig = score('tsconfig.json', 'btn', 0.2);
       const button = score('src/components/Button.tsx', 'btn', 0.2);
       // Button.tsx matches all 3 chars (b, t, n in "Button") — should outscore

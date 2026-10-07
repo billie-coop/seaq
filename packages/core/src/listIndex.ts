@@ -26,13 +26,12 @@ import {
 } from './score';
 
 interface ListIndex {
-  /** The list entries each row was prepared from, for change detection. */
+  /** The entries the rows were prepared from, to detect replaced entries. */
   items: unknown[];
   /** Search string per row, and its lowercased form; '' never matches. */
   strings: string[];
   lowers: string[];
   masks: Uint32Array;
-  /** Per-row word-start masks, so scoring needn't work them out each search. */
   wordStarts: Uint32Array;
   /** 32 bitmaps of `words` 32-bit words each: bit r of bitmap b ⇔ row r has class b. */
   bits: Uint32Array;
@@ -41,14 +40,12 @@ interface ListIndex {
   lastQuery: string | null;
   lastRows: Int32Array;
   lastRowsLen: number;
-  /** Per-row score scratch space, reused across searches. */
   scores: Float64Array;
 }
 
 /** Indexes per list, then per search-string signature. */
 const listIndexes = new WeakMap<object, Map<string, ListIndex>>();
 
-/** An item and its score. */
 export interface Scored<T> {
   item: T;
   score: number;
@@ -79,15 +76,12 @@ export function scoreIndexed<T>(
     ? scoreFuzzy(index, plan, fuzziness, top)
     : scoreStrict(index, plan, top);
 
-  // Materialize only rows that can still make the result: anything below
-  // the final bar is cut by the threshold or by the top-N selection
+  // Rows below the final bar would be cut by the threshold or the limit
   const bar = top.bar();
   const { lastRows: rows, scores } = index;
   const items: Scored<T>[] = [];
   for (let i = 0; i < rowsLen; i++) {
-    // biome-ignore lint/style/noNonNullAssertion: i < rowsLen ≤ rows.length
     const r = rows[i]!;
-    // biome-ignore lint/style/noNonNullAssertion: r is a valid row
     const s = scores[r]!;
     if (s >= bar) items.push({ item: list[r] as T, score: s });
   }
@@ -111,8 +105,7 @@ class TopScores {
     private threshold: number,
     rows: number,
   ) {
-    // The final top-N keeps up to ceil(limit) items; a heap that can never
-    // fill (limit ≥ rows) is skipped
+    // A heap that can never fill doesn't raise the bar
     this.cap = Math.ceil(limit);
     this.heap = this.cap < rows ? new Float64Array(this.cap) : null;
   }
@@ -122,13 +115,11 @@ class TopScores {
     const heap = this.heap;
     if (!heap) return;
     if (this.len < this.cap) heapPush(heap, this.len++, s);
-    // biome-ignore lint/style/noNonNullAssertion: heap is full here
     else if (s > heap[0]!) heapReplaceTop(heap, this.len, s);
   }
 
   bar(): number {
     const cutoff = this.max * this.threshold;
-    // biome-ignore lint/style/noNonNullAssertion: heap is full here
     const weakest = this.heap && this.len === this.cap ? this.heap[0]! : 0;
     return cutoff > weakest ? cutoff : weakest;
   }
@@ -146,8 +137,6 @@ function getIndex<T>(list: T[], signature: string, prep: (item: T) => string): L
     byList.set(signature, index);
     return index;
   }
-  // Same length: re-prepare any row whose entry was replaced. Mutating an
-  // entry in place is not detected.
   const items = index.items;
   for (let r = 0; r < list.length; r++) {
     if (list[r] !== items[r]) {
@@ -182,11 +171,9 @@ function prepRow<T>(index: ListIndex, r: number, item: T, prep: (item: T) => str
   const { bits, words } = index;
   const word = r >> 5;
   const bit = 1 << (r & 31);
-  // Clear the row from the bitmaps of its old classes (none for fresh rows)
-  // biome-ignore lint/style/noNonNullAssertion: r is a valid row
+  // Clear the row's old classes (none for a fresh row)
   for (let m = index.masks[r]!; m !== 0; m &= m - 1) {
     const at = (31 - Math.clz32(m & -m)) * words + word;
-    // biome-ignore lint/style/noNonNullAssertion: at < 32 * words
     bits[at] = bits[at]! & ~bit;
   }
 
@@ -200,7 +187,6 @@ function prepRow<T>(index: ListIndex, r: number, item: T, prep: (item: T) => str
   index.wordStarts[r] = wordStartMask(lower);
   for (let m = mask; m !== 0; m &= m - 1) {
     const at = (31 - Math.clz32(m & -m)) * words + word;
-    // biome-ignore lint/style/noNonNullAssertion: at < 32 * words
     bits[at] = bits[at]! | bit;
   }
 }
@@ -216,7 +202,6 @@ function scoreStrict(index: ListIndex, plan: QueryPlan, top: TopScores): number 
   let matchedLen = 0;
 
   const score = (r: number) => {
-    // biome-ignore lint/style/noNonNullAssertion: r is a valid row
     const s = scoreString(plan, strings[r]!, lowers[r]!, wordStarts[r]!, 0);
     if (s > 0) {
       matched[matchedLen++] = r;
@@ -233,9 +218,7 @@ function scoreStrict(index: ListIndex, plan: QueryPlan, top: TopScores): number 
     // written in place — it never overtakes the read position.
     const prevLen = index.lastRowsLen;
     for (let i = 0; i < prevLen; i++) {
-      // biome-ignore lint/style/noNonNullAssertion: i < prevLen ≤ length
       const r = matched[i]!;
-      // biome-ignore lint/style/noNonNullAssertion: r is a valid row
       if ((plan.mask & ~masks[r]!) === 0) score(r);
     }
   } else {
@@ -246,10 +229,8 @@ function scoreStrict(index: ListIndex, plan: QueryPlan, top: TopScores): number 
       offsets.push((31 - Math.clz32(m & -m)) * words);
     }
     for (let w = 0; w < words; w++) {
-      // biome-ignore lint/style/noNonNullAssertion: a non-blank query uses at least one class
       let hits = bits[offsets[0]! + w]!;
       for (let o = 1; o < offsets.length && hits !== 0; o++) {
-        // biome-ignore lint/style/noNonNullAssertion: offsets in-bounds by loop guard
         hits &= bits[offsets[o]! + w]!;
       }
       while (hits !== 0) {
@@ -281,7 +262,6 @@ function scoreFuzzy(index: ListIndex, plan: QueryPlan, fuzziness: number, top: T
   // Every scores[] slot read below was written earlier in this search, so
   // the buffer needs no clearing between searches
   const score = (r: number) => {
-    // biome-ignore lint/style/noNonNullAssertion: r is a valid row
     const s = scoreString(plan, strings[r]!, lowers[r]!, wordStarts[r]!, fuzziness);
     scores[r] = s;
     top.record(s);
@@ -290,7 +270,6 @@ function scoreFuzzy(index: ListIndex, plan: QueryPlan, fuzziness: number, top: T
   // Pass 1: rows containing every query class. They hold the best matches,
   // which raises the bar before the rest are considered.
   for (let r = 0; r < n; r++) {
-    // biome-ignore lint/style/noNonNullAssertion: r < n
     const mask = masks[r]!;
     if (mask !== 0 && (queryMask & ~mask) === 0) score(r);
   }
@@ -299,33 +278,26 @@ function scoreFuzzy(index: ListIndex, plan: QueryPlan, fuzziness: number, top: T
   // or can't reach the bar. The bar only rises, so every skipped row ends
   // below it.
   for (let r = 0; r < n; r++) {
-    // biome-ignore lint/style/noNonNullAssertion: r < n
     const mask = masks[r]!;
-    // No query character at all: score 0. Checked before reading the row's
-    // string, which costs a memory access per row.
+    // No query class at all scores 0; checked before reading the row's string
     if ((queryMask & mask) === 0) continue;
     if ((queryMask & ~mask) !== 0) {
-      // biome-ignore lint/style/noNonNullAssertion: r < n
       if (scoreBound(ceiling, mask, lowers[r]!.length) < top.bar()) continue;
       score(r);
     }
-    // biome-ignore lint/style/noNonNullAssertion: r < n
     if (scores[r]! > 0) rows[rowsLen++] = r;
   }
   return rowsLen;
 }
 
-// Min-heap of scores (smallest at index 0)
+// Min-heap of scores, smallest first
 function heapPush(heap: Float64Array, len: number, value: number): void {
   let i = len;
   heap[i] = value;
   while (i > 0) {
     const parent = (i - 1) >> 1;
-    // biome-ignore lint/style/noNonNullAssertion: indices in-bounds
     if (heap[parent]! <= heap[i]!) break;
-    // biome-ignore lint/style/noNonNullAssertion: indices in-bounds
     const tmp = heap[i]!;
-    // biome-ignore lint/style/noNonNullAssertion: indices in-bounds
     heap[i] = heap[parent]!;
     heap[parent] = tmp;
     i = parent;
@@ -339,14 +311,10 @@ function heapReplaceTop(heap: Float64Array, len: number, value: number): void {
     const left = 2 * i + 1;
     const right = left + 1;
     let smallest = i;
-    // biome-ignore lint/style/noNonNullAssertion: left < len guard
     if (left < len && heap[left]! < heap[smallest]!) smallest = left;
-    // biome-ignore lint/style/noNonNullAssertion: right < len guard
     if (right < len && heap[right]! < heap[smallest]!) smallest = right;
     if (smallest === i) return;
-    // biome-ignore lint/style/noNonNullAssertion: indices in-bounds
     const tmp = heap[i]!;
-    // biome-ignore lint/style/noNonNullAssertion: indices in-bounds
     heap[i] = heap[smallest]!;
     heap[smallest] = tmp;
     i = smallest;
