@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/seaq?label=npm)](https://www.npmjs.com/package/seaq)
 
-Zero-dependency fuzzy search for JavaScript and TypeScript. One function, no index, no setup. Works the same whether your list has 20 items or 20,000.
+Zero-dependency fuzzy search for JavaScript and TypeScript. One function, no setup, no index to manage. Works the same whether your list has 20 items or 20,000.
 
 ```typescript
 import { seaq } from 'seaq';

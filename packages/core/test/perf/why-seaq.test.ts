@@ -920,8 +920,10 @@ describe('SCENARIO 8: seaq v1 → v2', () => {
       );
     }
 
-    console.log('\n  Same scoring rules, no fuzziness — pure engine improvements:');
-    console.log('  pre-lowered targets, bitmask pre-filter, quadratic miss penalty.');
+    console.log('\n  No fuzziness, no index — engine improvements:');
+    console.log(
+      '  pre-lowered targets, bitmask pre-filter, quadratic miss penalty. v2 also matches swaps and any word order.',
+    );
     expect(true).toBe(true);
   });
 

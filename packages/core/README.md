@@ -1,6 +1,6 @@
 # seaq
 
-Zero-dependency fuzzy search. One function, no index, no setup.
+Zero-dependency fuzzy search. One function, no setup, no index to manage.
 
 ```typescript
 import { seaq } from 'seaq';
@@ -8,7 +8,7 @@ import { seaq } from 'seaq';
 const results = seaq(contacts, 'john', { keys: ['name', 'email'] });
 ```
 
-Works the same whether your list has 20 items or 20,000 -- no refactoring needed.
+Works the same whether your list has 20 items or 20,000 -- no refactoring needed. Search the same list again and seaq indexes it for you.
 
 **[Docs & live playground →](https://billie-coop.github.io/seaq/)** Try seaq on your own JSON and compare it side by side with fuzzysort, Fuse.js, MiniSearch, uFuzzy, and Lunr.
 
@@ -29,8 +29,28 @@ const contacts = [
 ];
 
 seaq(contacts, 'jo', { keys: ['name', 'email'] });
-// => [{ name: 'John Smith', ... }]
+// => [{ name: 'John Smith', ... }, { name: 'Jane Doe', ... }]  (John ranked first)
 ```
+
+### Shorthand, swapped letters, word order and typos
+
+seaq is built for what people actually type into a search box:
+
+```typescript
+const people = [
+  { firstName: 'Stephen', lastName: 'Laughton' },
+  { firstName: 'Steve', lastName: 'Lawson' },
+];
+const keys = ['firstName', 'lastName'];
+
+seaq(people, 'steplau', { keys });        // shorthand: word prefixes typed together
+seaq(people, 'laguht', { keys });         // adjacent letters swapped
+seaq(people, 'laughton steph', { keys }); // words in any order
+seaq(people, 'stephin', { keys });        // a typo: "i" isn't in "Stephen"
+// => Stephen Laughton ranks first for each
+```
+
+Shorthand, acronyms, adjacent swaps and word order work at every `fuzziness`; each swap or a reversed word order costs a little score. Typos -- characters that aren't in the item at all -- need `fuzziness` above 0. The default `0.2` allows them at a lower score; `fuzziness: 0` rejects them.
 
 ### Nested objects (dot notation)
 
@@ -66,7 +86,7 @@ seaq(['apple', 'banana', 'orange'], 'app');
 
 ### Acronym matching
 
-seaq gives bonus score to acronym matches -- useful for searching names, locations, and abbreviations:
+Characters that start a word score extra, so acronyms and initials find what they stand for. Capitals you type also earn a small bonus where the item has the same capital:
 
 ```typescript
 seaq(['Hillsdale Michigan', 'Historical Museum'], 'HiMi');
@@ -93,10 +113,10 @@ const results = seaq(contacts, 'john smith', {
 });
 // => [{
 //   item: { firstName: 'John', lastName: 'Smith', ... },
-//   score: 0.93,
+//   score: 0.94,
 //   matches: [
-//     { key: 'firstName', value: 'John',  indices: [[0, 3]], score: 0.93 },
-//     { key: 'lastName',  value: 'Smith', indices: [[0, 4]], score: 0.93 },
+//     { key: 'firstName', value: 'John',  indices: [[0, 3]], score: 0.94 },
+//     { key: 'lastName',  value: 'Smith', indices: [[0, 4]], score: 0.94 },
 //   ],
 // }]
 ```
@@ -105,21 +125,24 @@ Match positions are only computed for the final (post-limit) results, so `includ
 
 ### Repeated searches (typeahead)
 
-By default every call re-reads the list from scratch -- that's what makes seaq great for dynamic data. If the same list is searched repeatedly (typing in a search box over a static list), set `cache: true`:
-
-```typescript
-seaq(contacts, query, { keys: ['name', 'email'], cache: true });
-```
-
-With `cache: true`, seaq builds an index for the list on the first search and reuses it on later calls with the same array:
+You don't set anything up for a search box. The first search of an array just scans it. The second search of the same array builds an index, and later searches reuse it:
 
 - **Only promising items get scored.** The index records which letters each item contains. Strict searches (`fuzziness: 0`) only score items that contain every letter in the query. Fuzzy searches skip items whose missing letters cap their score below what's already in the top results.
 - **Typing gets cheaper.** In strict mode, when the query extends the previous one ("nat" → "nata"), only the previous matches are re-checked.
-- **Results are identical** to an uncached search.
+- **Results are identical** to a search without the index.
 
-On 10K contacts this makes a default search about 8x faster (1.7 ms → 0.2 ms) and a strict search about 20x faster (1.1 ms → 0.05 ms). The first search on a list costs about the same as an uncached search.
+On 10K contacts, a default search for `"nath fe"` takes 2.6 ms without the index and 0.38 ms with it; with `fuzziness: 0` it takes 13 µs. Building the index costs about as much as one search without it. It uses about 0.5 MB of memory per 10K contacts.
 
-The index is keyed on the array in a `WeakMap`, so it's garbage-collected with the list. Adding, removing or replacing items is detected automatically. Mutating an item in place is not: replace the object instead. Building a new array each render (e.g. `items.filter(...)`) means a new index each time, which costs about as much as an uncached search. In `fieldMode: 'separate'`, the cache stores prepared strings per item instead of using the list index.
+The index is keyed on the array in a `WeakMap`, so it's garbage-collected with the list. Adding, removing or replacing items is detected automatically. **Mutating an item in place is not detected** once the array is indexed: replace the object (`list[i] = { ...item, name }`), or pass `cache: false`. A new array each render (e.g. `items.filter(...)`) is a new list, so it's scanned like any first search.
+
+Control it with the `cache` option:
+
+```typescript
+seaq(list, query, { cache: true });  // index on the first search
+seaq(list, query, { cache: false }); // never index; always re-read the items
+```
+
+In `fieldMode: 'separate'` there is no index; `cache: true` caches prepared strings per item instead, and by default nothing is cached.
 
 ## API
 
@@ -135,12 +158,12 @@ Returns a new array of matching items sorted by relevance (highest score first).
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `keys` | `string[]` | -- | Fields to search. Supports dot notation for nested properties (`'address.city'`) and automatic array traversal (`'emails.address'`). Omit when searching a plain `string[]`; without `keys`, non-string items are matched against their JSON representation. |
-| `fuzziness` | `number` | `0` | Tolerance for characters that aren't in the item, from 0 to 1 (clamped). `0` = every query character must exist; shorthand (`steplau`), acronyms, adjacent swaps (`laguht`) and any word order still match. `0.2` = light typo tolerance. `0.5` = moderate. `0.8`+ = very loose. |
+| `fuzziness` | `number` | `0.2` | Tolerance for characters that aren't in the item at all, from 0 to 1 (clamped). `0.2` = light typo tolerance: missing characters are allowed and scored lower. `0` = every query character must exist (fastest). `0.5` = moderate. `0.8`+ = very loose. Shorthand (`steplau`), acronyms, adjacent swaps (`laguht`) and any word order match at every setting. |
 | `fieldMode` | `'joined' \| 'separate'` | `'joined'` | `'joined'` concatenates all field values into one string before scoring -- supports cross-field queries like "john smith" matching firstName + lastName. `'separate'` scores each field independently and takes the best. Ignored for plain string arrays. |
 | `limit` | `number` | `10` | Maximum results to return. Uses a min-heap internally for O(n log k) selection, faster than full-sorting then slicing. Set to `Infinity` to return all matches; `0` or negative returns `[]`. |
 | `threshold` | `number` | `0.3` | Relative score cutoff. Results scoring below `topScore * threshold` are dropped. `0` = no filtering (return everything with score > 0). `1` = only near-perfect matches. Note: higher = stricter -- the opposite polarity of Fuse.js's `threshold`. |
 | `includeMatches` | `boolean` | `false` | When `true`, returns `SeaqResult<T>` objects with per-field match metadata (character positions, matched value, per-match score) instead of plain items. |
-| `cache` | `boolean` | `false` | When `true`, builds a search index for the list on first use and reuses it while the same array is searched again -- much faster repeated searches with identical results. Items must not be mutated in place (replace them instead). See [Repeated searches](#repeated-searches-typeahead). |
+| `cache` | `boolean` | -- | Unset: an array is indexed on its second search. `true`: indexed on the first search. `false`: never indexed. Results are identical either way. Items mutated in place aren't detected once indexed -- replace them instead. See [Repeated searches](#repeated-searches-typeahead). |
 
 ### Types
 
@@ -171,25 +194,25 @@ interface SeaqMatch {
 | Array field traversal | **yes** | via getter | partial | no | no | no |
 | Cross-field matching | yes | yes | no | no | no | no |
 | Match highlighting | yes | yes | yes | yes | yes | no |
-| Pre-built index | no | optional | yes | yes | no | yes |
+| Index | automatic | optional | required | required | no | required |
 | Zero dependencies | yes | yes | yes | yes | yes | yes |
 
 ## When to use seaq
 
 **seaq is a good fit when:**
 
+- You want zero setup -- no constructor, no addAll, no index step; one function call
+- Users type shorthand, initials, swapped letters or small typos
 - Your list is dynamic -- data changes each render, so index-based libs waste time rebuilding
 - You need to search nested objects or arrays without manual flattening
 - Acronym matching matters (e.g., "NYC" matching "New York City")
-- You want zero setup -- no constructor, no addAll, no index step; one function call
-- Cold-start performance matters -- seaq has no index overhead, so the first search is fast
 - Your list size is unpredictable -- works from 20 items to 20,000 without API changes
 
 **Consider alternatives when:**
 
-- You repeatedly search a large static dataset (10K+ items) -- MiniSearch and Lunr amortize their index cost across many searches and will be significantly faster after the first query (`cache: true` closes part of this gap, but an inverted index still wins on raw repeated-query throughput)
+- You repeatedly search a large static dataset and need the most throughput -- MiniSearch and Lunr use inverted indexes that answer word queries in microseconds. seaq's automatic index closes much of the gap, but an inverted index still wins on raw repeated-query speed
 - You only search flat string arrays and need maximum throughput -- uFuzzy is purpose-built for this
-- You never need typo tolerance and want the fastest repeated search -- fuzzysort matches in-order characters only, but its `snapshot()` is much faster than re-scanning while the user types
+- You never need typo tolerance and want the fastest search while the user types -- fuzzysort only matches characters in order, and its `snapshot()` re-checks only the previous matches on each keystroke
 - You need features like stemming, stopwords, or boolean queries -- Lunr and MiniSearch have full-text search capabilities that seaq does not
 
 For benchmark methodology and detailed performance numbers, see [BENCHMARKS.md](https://github.com/billie-coop/seaq/blob/main/BENCHMARKS.md).
