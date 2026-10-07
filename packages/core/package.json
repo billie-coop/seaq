@@ -1,7 +1,7 @@
 {
   "name": "seaq",
   "version": "2.0.0",
-  "description": "Zero-dependency fuzzy search — one function, no index, no setup",
+  "description": "Zero-dependency fuzzy search — one function, no setup, no index to manage",
   "license": "MIT",
   "author": "Stephen Laughton",
   "repository": {
@@ -45,7 +45,7 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "vitest run --coverage --exclude 'test/perf/**'",
     "benchmark": "vitest bench",
     "bench:save": "vitest bench --outputJson benchmarks/$(git rev-parse --short HEAD).json"
   },

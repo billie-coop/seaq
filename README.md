@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/seaq?label=npm)](https://www.npmjs.com/package/seaq)
 
-Zero-dependency fuzzy search for JavaScript and TypeScript. One function, no index, no setup. Works the same whether your list has 20 items or 20,000.
+Zero-dependency fuzzy search for JavaScript and TypeScript. One function, no setup, no index to manage. Works the same whether your list has 20 items or 20,000.
 
 ```typescript
 import { seaq } from 'seaq';
@@ -31,12 +31,13 @@ Other docs:
 
 ## Development
 
-Prerequisites: Node 22+, yarn 4 (managed via `packageManager` in `package.json`).
+Prerequisites: Node 24 (pinned in `.prototools`; the published package supports Node 22+), yarn 4 (managed via `packageManager` in `package.json`).
 
 ```bash
 yarn install
 yarn build          # build all packages
 yarn test           # run all tests
+yarn coverage       # core unit tests; fails below 100% coverage of packages/core/src
 yarn ts-check       # type-check the whole repo
 yarn check          # biome lint
 yarn dev            # build core in watch mode + run docs site

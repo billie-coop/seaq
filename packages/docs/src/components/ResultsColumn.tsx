@@ -28,6 +28,11 @@ interface ResultsColumnProps {
   active: boolean;
 }
 
+function formatTime(ms: number): string {
+  if (ms < 1) return `${Math.round(ms * 1000)}µs`;
+  return `${ms.toFixed(ms < 10 ? 2 : 1)}ms`;
+}
+
 function timingColor(ms: number): string {
   if (ms < 5) return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
   if (ms < 50) return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
@@ -53,7 +58,7 @@ function seaqSnippet(query: string, keys: string[], config: SeaqConfig): string 
   if (config.fieldMode !== 'joined') opts.push(`fieldMode: '${config.fieldMode}'`);
   if (config.limit != null && config.limit !== 10) opts.push(`limit: ${config.limit}`);
   if (config.threshold !== 0.3) opts.push(`threshold: ${config.threshold}`);
-  if (config.cache) opts.push(`cache: true`);
+  if (config.cache !== 'auto') opts.push(`cache: ${config.cache}`);
   const optsStr = opts.length > 0 ? `, {\n  ${opts.join(',\n  ')}\n}` : '';
   return `seaq(data, ${q(query)}${optsStr})`;
 }
@@ -316,15 +321,15 @@ function SeaqControls({
     <>
       <Select
         label="Fuzziness"
-        hint="Typo tolerance. 0 = strict, every char must match."
+        hint="Tolerance for letters that aren't there. 0 = every letter must exist; shorthand, swaps and word order match either way."
         value={config.fuzziness}
         options={[
           { value: '0.2', label: '0.2 (default)' },
+          { value: '0', label: '0 (strict)' },
           { value: '0.1', label: '0.1' },
           { value: '0.3', label: '0.3' },
           { value: '0.5', label: '0.5' },
           { value: '0.8', label: '0.8' },
-          { value: '0', label: '0 (strict)' },
         ]}
         onChange={(v) => onChange({ fuzziness: Number(v) })}
       />
@@ -366,11 +371,16 @@ function SeaqControls({
         ]}
         onChange={(v) => onChange({ limit: v === 'off' ? undefined : Number(v) })}
       />
-      <Check
-        label="Cache"
-        hint="Reuse prepared strings across searches (typeahead on static data)."
-        checked={config.cache}
-        onChange={(v) => onChange({ cache: v })}
+      <Select
+        label="Cache (index)"
+        hint="Index reused across searches; same results. Auto indexes on the 2nd search of a list. Separate mode only caches when on."
+        value={String(config.cache)}
+        options={[
+          { value: 'auto', label: 'auto (default)' },
+          { value: 'true', label: 'on' },
+          { value: 'false', label: 'off' },
+        ]}
+        onChange={(v) => onChange({ cache: v === 'auto' ? 'auto' : v === 'true' })}
       />
     </>
   );
@@ -721,7 +731,8 @@ function ConfigControls({ engineKey, config, onConfigChange }: ResultsColumnProp
 
 // ── Main component ──
 
-const toggleBtnBase = 'w-5 h-5 rounded text-[10px] font-bold leading-none transition-colors';
+const toggleBtnBase =
+  'w-5 h-5 shrink-0 rounded text-[10px] font-bold leading-none transition-colors';
 
 export function ResultsColumn(props: ResultsColumnProps) {
   const { name, query, keys, arrayKeyMap, engineKey, config, result, toggle, onToggle, active } =
@@ -737,11 +748,13 @@ export function ResultsColumn(props: ResultsColumnProps) {
       }`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+        <div className="flex min-w-0 items-center gap-1.5">
           <button
             type="button"
-            title="Solo — only run this engine (Shift+click to add)"
+            title="Solo — only run soloed engines (solo several to compare them)"
+            aria-label={`Solo ${name}`}
+            aria-pressed={toggle.soloed}
             className={`${toggleBtnBase} ${
               toggle.soloed
                 ? 'bg-amber-400 text-amber-900 hover:bg-amber-500'
@@ -753,7 +766,9 @@ export function ResultsColumn(props: ResultsColumnProps) {
           </button>
           <button
             type="button"
-            title="Mute — disable this engine"
+            title="Mute — don't run this engine"
+            aria-label={`Mute ${name}`}
+            aria-pressed={toggle.muted}
             className={`${toggleBtnBase} ${
               toggle.muted
                 ? 'bg-red-500 text-white hover:bg-red-600'
@@ -763,23 +778,30 @@ export function ResultsColumn(props: ResultsColumnProps) {
           >
             M
           </button>
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{name}</h3>
-        </div>
-        <div className="flex items-center gap-2">
           <button
             type="button"
-            className="rounded border border-gray-300 px-1.5 py-0.5 text-[10px] text-gray-500 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700"
+            title="Reset — restore this engine's default options"
+            aria-label={`Reset ${name} options`}
+            className={`${toggleBtnBase} bg-gray-200 text-gray-500 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-400 dark:hover:bg-gray-500`}
             onClick={() =>
               props.onConfigChange(defaultConfigs[engineKey] as Partial<EngineConfigs[EngineKey]>)
             }
           >
-            Reset
+            R
           </button>
+          <h3
+            className="ml-0.5 truncate text-sm font-semibold text-gray-900 dark:text-white"
+            title={name}
+          >
+            {name}
+          </h3>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
           {result && (
             <span
               className={`rounded-full px-2 py-0.5 text-xs font-medium ${timingColor(result.timeMs)}`}
             >
-              {result.timeMs.toFixed(1)}ms
+              {formatTime(result.timeMs)}
             </span>
           )}
         </div>
