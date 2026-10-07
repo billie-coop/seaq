@@ -107,6 +107,9 @@ function caseBonus(raw: string, pos: number, word: string, lowerWord: string, i:
  * Align one query word against the target. `preferStarts` jumps to the next
  * word-start occurrence of a character when it can't continue consecutively.
  * Returns false when a character is missing and fuzziness is off.
+ *
+ * The lowercased target is read from `lower` when given (native indexOf, no
+ * copying), otherwise from `codes[start..end)` (the list index's buffer).
  */
 function align(
   preferStarts: boolean,
@@ -114,6 +117,7 @@ function align(
   codes: Uint16Array,
   start: number,
   end: number,
+  lower: string | null,
   lowerWord: string,
   word: string,
   fuzzy: boolean,
@@ -132,15 +136,14 @@ function align(
 
   while (i < wordLen) {
     const code = lowerWord.charCodeAt(i);
-    const here = start + startAt;
+    const here = codeAt(lower, codes, start, len, startAt);
 
     // Adjacent swap: the target continues with word[i+1] word[i]
     if (
-      startAt + 1 < len &&
       i + 1 < wordLen &&
-      codes[here] !== code &&
-      codes[here] === lowerWord.charCodeAt(i + 1) &&
-      codes[here + 1] === code
+      here !== code &&
+      here === lowerWord.charCodeAt(i + 1) &&
+      codeAt(lower, codes, start, len, startAt + 1) === code
     ) {
       let cs = prevFound ? 0.7 : 0.1 + (raw.charCodeAt(startAt - 1) === 32 ? 0.8 : 0);
       cs += caseBonus(raw, startAt, word, lowerWord, i + 1);
@@ -158,24 +161,24 @@ function align(
     }
 
     let pos = -1;
-    if (startAt < len && codes[here] === code) {
+    if (here === code) {
       pos = startAt;
     } else {
+      const next = nextIndex(lower, codes, start, len, lowerWord, i, code, startAt);
       if (preferStarts) {
-        for (let j = startAt; j < len; j++) {
-          if (codes[start + j] === code && (j === 0 || raw.charCodeAt(j - 1) === 32)) {
+        for (
+          let j = next;
+          j >= 0;
+          j = nextIndex(lower, codes, start, len, lowerWord, i, code, j + 1)
+        ) {
+          if (j === 0 || raw.charCodeAt(j - 1) === 32) {
             pos = j;
             break;
           }
         }
       }
       if (pos < 0) {
-        for (let j = startAt; j < len; j++) {
-          if (codes[start + j] === code) {
-            pos = j;
-            break;
-          }
-        }
+        pos = next;
         if (pos > 0 && raw.charCodeAt(pos - 1) !== 32) skippedMask |= charBit(code);
       }
     }
@@ -213,12 +216,41 @@ function align(
   return true;
 }
 
+/** The lowercase code unit at `j` of the target, or -1 past its end. */
+function codeAt(
+  lower: string | null,
+  codes: Uint16Array,
+  start: number,
+  len: number,
+  j: number,
+): number {
+  if (j >= len) return -1;
+  return lower !== null ? lower.charCodeAt(j) : (codes[start + j] as number);
+}
+
+/** Next index ≥ `from` of `code` (= lowerWord[i]) in the target, or -1. */
+function nextIndex(
+  lower: string | null,
+  codes: Uint16Array,
+  start: number,
+  len: number,
+  lowerWord: string,
+  i: number,
+  code: number,
+  from: number,
+): number {
+  if (lower !== null) return lower.indexOf(lowerWord.charAt(i), from);
+  for (let j = from; j < len; j++) if (codes[start + j] === code) return j;
+  return -1;
+}
+
 /**
  * Score `raw` (lowercased as `codes[start..end)`) against a query plan.
  * When `positions` is given, the matched character positions are appended,
  * sorted and de-duplicated. `wordStarts` is the target's
  * {@link wordStartMask}; it lets the word-start alignment be skipped when it
- * can't differ (-1 = unknown, always try it).
+ * can't differ (-1 = unknown: computed on demand from `lower`, or with
+ * packed codes, always try it).
  */
 export function scoreTarget(
   plan: QueryPlan,
@@ -229,6 +261,7 @@ export function scoreTarget(
   fuzziness: number,
   positions?: number[],
   wordStarts = -1,
+  lower: string | null = null,
 ): number {
   if (raw === plan.query) {
     if (positions) for (let p = 0; p < raw.length; p++) positions.push(p);
@@ -252,7 +285,18 @@ export function scoreTarget(
     const word = words[w]!;
     if (positions) positionsA.length = 0;
     if (
-      !align(false, raw, codes, start, end, lowerWord, word, fuzzy, positions ? positionsA : null)
+      !align(
+        false,
+        raw,
+        codes,
+        start,
+        end,
+        lower,
+        lowerWord,
+        word,
+        fuzzy,
+        positions ? positionsA : null,
+      )
     ) {
       // The earliest-occurrence alignment is the most permissive one: if it
       // can't place every character, the word doesn't match
@@ -268,10 +312,26 @@ export function scoreTarget(
     // a character that also starts a word somewhere. It's about ranking good
     // matches (acronyms), so skip it for words with misses — in fuzzy mode
     // that's most rows, and they rank low anyway.
+    if (alignSkippedMask !== 0 && alignMisses === 0) {
+      // Reading a plain string, the word-start mask isn't precomputed: work
+      // it out once per target, only when it's needed
+      if (wordStarts === -1 && lower !== null) wordStarts = wordStartMask(raw, lower);
+    }
     if ((alignSkippedMask & wordStarts) !== 0 && alignMisses === 0) {
       if (positions) positionsB.length = 0;
       if (
-        align(true, raw, codes, start, end, lowerWord, word, fuzzy, positions ? positionsB : null)
+        align(
+          true,
+          raw,
+          codes,
+          start,
+          end,
+          lower,
+          lowerWord,
+          word,
+          fuzzy,
+          positions ? positionsB : null,
+        )
       ) {
         const better =
           alignMisses < bestMisses ||
@@ -316,8 +376,9 @@ export function scoreTarget(
   if (coverage > 1) coverage = 1;
   let score = (0.3 * coverage + 0.7 * (rs / plan.length)) / fuzzies;
 
+  const firstCode = lower !== null ? lower.charCodeAt(0) : codes[start];
   // biome-ignore lint/style/noNonNullAssertion: plan.length > 0 ⇒ a non-empty word exists
-  if (lowerWords[0]!.charCodeAt(0) === codes[start] && score < 0.85) score += 0.15;
+  if (lowerWords[0]!.charCodeAt(0) === firstCode && score < 0.85) score += 0.15;
   if (swaps > 0) score *= SWAP_PENALTY ** swaps;
   if (outOfOrder) score *= WORD_ORDER_PENALTY;
 
@@ -335,7 +396,7 @@ function sortUnique(list: number[], from: number): void {
   }
 }
 
-let scratch = new Uint16Array(256);
+const noCodes = new Uint16Array(0);
 
 /** Score a target given its lowercased form as a string. */
 export function scoreString(
@@ -345,15 +406,7 @@ export function scoreString(
   fuzziness: number,
   positions?: number[],
 ): number {
-  const n = lower.length;
-  if (n > scratch.length) scratch = new Uint16Array(Math.max(n, scratch.length * 2));
-  let wordStarts = 0;
-  for (let i = 0; i < n; i++) {
-    const code = lower.charCodeAt(i);
-    scratch[i] = code;
-    if (i === 0 || raw.charCodeAt(i - 1) === 32) wordStarts |= charBit(code);
-  }
-  return scoreTarget(plan, raw, scratch, 0, n, fuzziness, positions, wordStarts);
+  return scoreTarget(plan, raw, noCodes, 0, lower.length, fuzziness, positions, -1, lower);
 }
 
 /**
