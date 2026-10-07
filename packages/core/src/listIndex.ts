@@ -56,6 +56,8 @@ interface ListIndex {
   lastLower: string | null;
   lastRows: Int32Array;
   lastRowsLen: number;
+  /** Fuzzy-mode score scratch space, reused across searches. */
+  scores: Float64Array;
 }
 
 /** Indexes per list, then per prep signature (the joined keys). */
@@ -128,6 +130,7 @@ function buildIndex<T>(list: T[], prep: (item: T) => string | null): ListIndex {
     lastLower: null,
     lastRows: new Int32Array(n),
     lastRowsLen: 0,
+    scores: new Float64Array(n),
   };
   for (let r = 0; r < n; r++) prepRow(index, r, list[r] as T, prep);
   return index;
@@ -255,7 +258,9 @@ function scoreFuzzy<T>(
   let heapLen = 0;
   let maxScore = 0;
 
-  const scores = new Float64Array(n);
+  // Every slot read below was written earlier in this search, so the
+  // buffer needs no clearing between searches
+  const scores = index.scores;
   const record = (r: number, s: number) => {
     scores[r] = s;
     if (s > maxScore) maxScore = s;
