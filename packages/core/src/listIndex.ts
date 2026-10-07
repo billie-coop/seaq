@@ -17,7 +17,6 @@
  *
  * Both paths return exactly the items and order the unindexed scan would.
  */
-import { string_score } from './string_score';
 
 /**
  * Build a bitmask of the character classes present in a string:
@@ -47,7 +46,16 @@ interface ListIndex {
   items: unknown[];
   /** Search string per row; `null` for entries that never match. */
   strings: Array<string | null>;
-  lowers: string[];
+  /**
+   * Lowercased search strings as UTF-16 code units, packed into one buffer:
+   * row r occupies codes[codeStart[r] .. codeEnd[r]). Replaced rows are
+   * appended at the end; the buffer is compacted when dead space dominates.
+   */
+  codes: Uint16Array;
+  codesLen: number;
+  liveCodes: number;
+  codeStart: Uint32Array;
+  codeEnd: Uint32Array;
   masks: Uint32Array;
   /** 32 bitmaps of `words` 32-bit words each: bit r of bitmap b ⇔ row r has class b. */
   bits: Uint32Array;
@@ -169,7 +177,10 @@ function getIndex<T>(list: T[], signature: string, prep: (item: T) => string | n
       repaired = true;
     }
   }
-  if (repaired) index.lastLower = null;
+  if (repaired) {
+    index.lastLower = null;
+    if (index.codesLen > 2 * index.liveCodes + 1024) compactCodes(index);
+  }
   return index;
 }
 
@@ -179,7 +190,11 @@ function buildIndex<T>(list: T[], prep: (item: T) => string | null): ListIndex {
   const index: ListIndex = {
     items: new Array(n),
     strings: new Array(n),
-    lowers: new Array(n),
+    codes: new Uint16Array(n * 16),
+    codesLen: 0,
+    liveCodes: 0,
+    codeStart: new Uint32Array(n),
+    codeEnd: new Uint32Array(n),
     masks: new Uint32Array(n),
     bits: new Uint32Array(32 * words),
     words,
@@ -207,7 +222,7 @@ function prepRow<T>(index: ListIndex, r: number, item: T, prep: (item: T) => str
   const str = item === null || item === undefined ? null : prep(item);
   index.strings[r] = str;
   const lower = str === null ? '' : str.toLowerCase();
-  index.lowers[r] = lower;
+  writeCodes(index, r, lower);
   const mask = charMask(lower);
   index.masks[r] = mask;
   for (let m = mask; m !== 0; m &= m - 1) {
@@ -215,6 +230,123 @@ function prepRow<T>(index: ListIndex, r: number, item: T, prep: (item: T) => str
     // biome-ignore lint/style/noNonNullAssertion: at < 32 * words
     bits[at] = bits[at]! | bit;
   }
+}
+
+/** Append a row's lowercase code units to the packed buffer. */
+function writeCodes(index: ListIndex, r: number, lower: string): void {
+  const len = lower.length;
+  if (index.codesLen + len > index.codes.length) {
+    const grown = new Uint16Array(Math.max(index.codes.length * 2, index.codesLen + len));
+    grown.set(index.codes.subarray(0, index.codesLen));
+    index.codes = grown;
+  }
+  // biome-ignore lint/style/noNonNullAssertion: r < row count
+  index.liveCodes += len - (index.codeEnd[r]! - index.codeStart[r]!);
+  const codes = index.codes;
+  let at = index.codesLen;
+  index.codeStart[r] = at;
+  for (let i = 0; i < len; i++) codes[at++] = lower.charCodeAt(i);
+  index.codeEnd[r] = at;
+  index.codesLen = at;
+}
+
+/** Rewrite the packed buffer without the slots of replaced rows. */
+function compactCodes(index: ListIndex): void {
+  const { codes, codeStart, codeEnd } = index;
+  const packed = new Uint16Array(Math.max(index.liveCodes, 16));
+  let at = 0;
+  for (let r = 0; r < codeStart.length; r++) {
+    // biome-ignore lint/style/noNonNullAssertion: r < row count
+    const start = codeStart[r]!;
+    // biome-ignore lint/style/noNonNullAssertion: r < row count
+    const end = codeEnd[r]!;
+    packed.set(codes.subarray(start, end), at);
+    codeStart[r] = at;
+    at += end - start;
+    codeEnd[r] = at;
+  }
+  index.codes = packed;
+  index.codesLen = at;
+}
+
+/**
+ * string_score over a row's packed lowercase codes. Must return exactly
+ * what `string_score(raw, query, fuzziness, lowerQuery, undefined,
+ * raw.toLowerCase())` returns — same arithmetic in the same order — just
+ * without indexOf/charAt string operations (fuzz-tested against it in
+ * listIndex.test.ts). Positions in the lowercase codes index into `raw`,
+ * as in string_score.
+ */
+export function scorePacked(
+  raw: string,
+  query: string,
+  fuzziness: number,
+  lowerQuery: string,
+  codes: Uint16Array,
+  start: number,
+  end: number,
+): number {
+  if (raw === query) return 1;
+  if (query === '' || raw === '') return 0;
+  if (!fuzziness && query.length > raw.length) return 0;
+
+  const lowerLen = end - start;
+  const lowerQueryLen = lowerQuery.length;
+  const wordLength = query.length;
+  let runningScore = 0;
+  let charScore: number;
+  let startAt = 0;
+  let fuzzies = 1;
+  const fuzzyFactor = fuzziness ? 1 - fuzziness : 0;
+  let prevFound = true;
+  let misses = 0;
+
+  for (let i = 0; i < wordLength; i++) {
+    // Next occurrence of the i-th lowercase query unit at or after startAt.
+    // Past the end of lowerQuery, string_score searches for '' — which
+    // indexOf finds at min(startAt, length).
+    let idxOf = -1;
+    if (i < lowerQueryLen) {
+      const code = lowerQuery.charCodeAt(i);
+      for (let j = start + startAt; j < end; j++) {
+        if (codes[j] === code) {
+          idxOf = j - start;
+          break;
+        }
+      }
+    } else {
+      idxOf = startAt < lowerLen ? startAt : lowerLen;
+    }
+
+    if (idxOf === -1) {
+      if (!fuzziness) return 0;
+      fuzzies += fuzzyFactor;
+      prevFound = false;
+      misses++;
+      continue;
+    }
+    if (startAt === idxOf && prevFound) {
+      charScore = 0.7;
+    } else {
+      charScore = 0.1;
+      if (raw.charCodeAt(idxOf - 1) === 32) charScore += 0.8;
+    }
+    if (raw.charCodeAt(idxOf) === query.charCodeAt(i)) charScore += 0.1;
+    runningScore += charScore;
+    startAt = idxOf + 1;
+    prevFound = true;
+  }
+
+  if (fuzziness) {
+    const missRatio = misses / wordLength;
+    runningScore *= (1 - missRatio) * (1 - missRatio);
+  }
+  let finalScore =
+    (0.3 * (runningScore / raw.length) + 0.7 * (runningScore / wordLength)) / fuzzies;
+  if (lowerLen > 0 && lowerQuery.charCodeAt(0) === codes[start] && finalScore < 0.85) {
+    finalScore += 0.15;
+  }
+  return finalScore;
 }
 
 /**
@@ -229,13 +361,23 @@ function scoreStrict(
   queryMask: number,
   top: TopScores,
 ): number {
-  const { strings, lowers, masks, scores } = index;
+  const { strings, codes, codeStart, codeEnd, masks, scores } = index;
   const matched = index.lastRows;
   let matchedLen = 0;
 
   const score = (r: number) => {
-    // biome-ignore lint/style/noNonNullAssertion: candidates are rows with a non-empty mask, so strings[r] is set
-    const s = string_score(strings[r]!, query, 0, lowerQuery, undefined, lowers[r]);
+    const s = scorePacked(
+      // biome-ignore lint/style/noNonNullAssertion: candidates are rows with a non-empty mask, so strings[r] is set
+      strings[r]!,
+      query,
+      0,
+      lowerQuery,
+      codes,
+      // biome-ignore lint/style/noNonNullAssertion: r is a valid row
+      codeStart[r]!,
+      // biome-ignore lint/style/noNonNullAssertion: r is a valid row
+      codeEnd[r]!,
+    );
     if (s > 0) {
       matched[matchedLen++] = r;
       scores[r] = s;
@@ -296,7 +438,7 @@ function scoreFuzzy(
   // Narrowing state only holds for strict scores; lastRows is reused below
   index.lastLower = null;
 
-  const { strings, lowers, masks, scores } = index;
+  const { strings, codes, codeStart, codeEnd, masks, scores } = index;
   const rows = index.lastRows;
   let rowsLen = 0;
   const n = masks.length;
@@ -319,8 +461,18 @@ function scoreFuzzy(
     top.record(s);
   };
   const scoreRow = (r: number) =>
-    // biome-ignore lint/style/noNonNullAssertion: only called for rows with a search string
-    string_score(strings[r]!, query, fuzziness, lowerQuery, undefined, lowers[r]);
+    scorePacked(
+      // biome-ignore lint/style/noNonNullAssertion: only called for rows with a search string
+      strings[r]!,
+      query,
+      fuzziness,
+      lowerQuery,
+      codes,
+      // biome-ignore lint/style/noNonNullAssertion: r is a valid row
+      codeStart[r]!,
+      // biome-ignore lint/style/noNonNullAssertion: r is a valid row
+      codeEnd[r]!,
+    );
 
   // Pass 1: rows containing every query class. They hold the best matches,
   // which raises the bar before the rest are considered.
