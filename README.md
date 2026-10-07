@@ -31,7 +31,7 @@ Other docs:
 
 ## Development
 
-Prerequisites: Node 22+, yarn 4 (managed via `packageManager` in `package.json`).
+Prerequisites: Node 24 (pinned in `.prototools`; the published package supports Node 22+), yarn 4 (managed via `packageManager` in `package.json`).
 
 ```bash
 yarn install
