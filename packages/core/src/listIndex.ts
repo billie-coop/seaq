@@ -9,7 +9,7 @@
  * - Strict (`fuzziness: 0`): candidates are the AND of the bitmaps for the
  *   query's character classes. When the query extends the previous one
  *   (typing), only the previous query's matches are re-checked.
- * - Fuzzy: rows are skipped when their {@link scoreCeiling} can't reach the
+ * - Fuzzy: rows are skipped when their {@link scoreBound} can't reach the
  *   current bar (relative threshold, or the weakest of the top `limit`
  *   scores so far).
  *
@@ -19,6 +19,7 @@ import {
   charMask,
   lowercase,
   type QueryPlan,
+  scoreBound,
   scoreCeiling,
   scoreString,
   wordStartMask,
@@ -276,6 +277,7 @@ function scoreFuzzy(index: ListIndex, plan: QueryPlan, fuzziness: number, top: T
   let rowsLen = 0;
   const n = masks.length;
   const ceiling = scoreCeiling(plan, fuzziness);
+  const queryMask = plan.mask;
   // Every scores[] slot read below was written earlier in this search, so
   // the buffer needs no clearing between searches
   const score = (r: number) => {
@@ -290,7 +292,7 @@ function scoreFuzzy(index: ListIndex, plan: QueryPlan, fuzziness: number, top: T
   for (let r = 0; r < n; r++) {
     // biome-ignore lint/style/noNonNullAssertion: r < n
     const mask = masks[r]!;
-    if (mask !== 0 && (plan.mask & ~mask) === 0) score(r);
+    if (mask !== 0 && (queryMask & ~mask) === 0) score(r);
   }
 
   // Pass 2: everything else, in list order, skipping rows that can't score
@@ -299,11 +301,12 @@ function scoreFuzzy(index: ListIndex, plan: QueryPlan, fuzziness: number, top: T
   for (let r = 0; r < n; r++) {
     // biome-ignore lint/style/noNonNullAssertion: r < n
     const mask = masks[r]!;
-    if (mask === 0) continue;
-    if ((plan.mask & ~mask) !== 0) {
+    // No query character at all: score 0. Checked before reading the row's
+    // string, which costs a memory access per row.
+    if ((queryMask & mask) === 0) continue;
+    if ((queryMask & ~mask) !== 0) {
       // biome-ignore lint/style/noNonNullAssertion: r < n
-      const ceil = ceiling(mask, lowers[r]!.length);
-      if (ceil === 0 || ceil < top.bar()) continue;
+      if (scoreBound(ceiling, mask, lowers[r]!.length) < top.bar()) continue;
       score(r);
     }
     // biome-ignore lint/style/noNonNullAssertion: r < n

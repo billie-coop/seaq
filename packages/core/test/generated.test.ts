@@ -13,7 +13,14 @@
  */
 import { describe, expect, test } from 'vitest';
 import { type SeaqOptions, type SeaqResult, seaq } from '../src/index';
-import { charMask, lowercase, planQuery, scoreCeiling, scoreString } from '../src/score';
+import {
+  charMask,
+  lowercase,
+  planQuery,
+  scoreBound,
+  scoreCeiling,
+  scoreString,
+} from '../src/score';
 
 // Deterministic PRNG so failures reproduce
 let seed = 20261006;
@@ -287,7 +294,7 @@ describe('fuzzy pruning bound', () => {
       const fuzziness = pick([0.05, 0.2, 0.5, 1]);
       const plan = planQuery(query);
       const score = scoreString(plan, raw, lower, -1, fuzziness);
-      const bound = scoreCeiling(plan, fuzziness)(charMask(lower), lower.length);
+      const bound = scoreBound(scoreCeiling(plan, fuzziness), charMask(lower), lower.length);
       if (score > bound) {
         throw new Error(
           `bound ${bound} < score ${score} for ${JSON.stringify({ raw, query, fuzziness })}`,

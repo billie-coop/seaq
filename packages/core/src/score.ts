@@ -374,10 +374,11 @@ export function matchesStrict(lower: string, lowerWord: string): boolean {
 }
 
 /**
- * An upper bound on {@link scoreString} for `plan` in fuzzy mode, from a
- * target's {@link charMask} and length: a search can skip targets that
- * can't reach its results without scoring them. `Infinity` when the target
- * has every class the query uses.
+ * Tables for an upper bound on {@link scoreString} for `plan` in fuzzy
+ * mode, from a target's {@link charMask} and length ({@link scoreBound}): a
+ * search can skip targets that can't reach its results without scoring
+ * them. The bound is `Infinity` when the target has every class the query
+ * uses.
  *
  * Every query character in a class the target lacks is a certain miss, and
  * more misses only lower the score. Following scoreString with `m` misses
@@ -387,22 +388,27 @@ export function matchesStrict(lower: string, lowerWord: string): boolean {
  * also rs ≤ MAX_CHAR·words·length·k², which bounds coverage. FIRST_CHAR is
  * added unconditionally; swap and word-order penalties only lower the score.
  */
-export function scoreCeiling(
-  plan: QueryPlan,
-  fuzziness: number,
-): (mask: number, length: number) => number {
+export interface Ceiling {
+  queryMask: number;
+  length: number;
+  /** How many query characters fall in each class. */
+  classCount: Int32Array;
+  // The bound split by miss count m, so the per-target part is one division
+  fixed: Float64Array;
+  coverageCap: Float64Array;
+  coveragePerLength: Float64Array;
+}
+
+export function scoreCeiling(plan: QueryPlan, fuzziness: number): Ceiling {
   const len = plan.length;
   const words = plan.words.length;
-  // How many query characters fall in each class
-  const classCount = new Array<number>(32).fill(0);
+  const classCount = new Int32Array(32);
   for (const word of plan.lowerWords) {
     for (let i = 0; i < word.length; i++) {
       // biome-ignore lint/style/noNonNullAssertion: class index in [0, 31]
       classCount[31 - Math.clz32(charBit(word.charCodeAt(i)))]!++;
     }
   }
-
-  // The bound split by miss count m, so the per-target part is one division
   const fixed = new Float64Array(len);
   const coverageCap = new Float64Array(len);
   const coveragePerLength = new Float64Array(len);
@@ -416,17 +422,19 @@ export function scoreCeiling(
     coverageCap[m] = (0.3 * Math.min(1, MAX_CHAR * words * kept * kept)) / divisor;
     coveragePerLength[m] = (0.3 * rs) / divisor;
   }
+  return { queryMask: plan.mask, length: len, classCount, fixed, coverageCap, coveragePerLength };
+}
 
-  return (mask, length) => {
-    let misses = 0;
-    for (let m = plan.mask & ~mask; m !== 0; m &= m - 1) {
-      // biome-ignore lint/style/noNonNullAssertion: class index in [0, 31]
-      misses += classCount[31 - Math.clz32(m & -m)]!;
-    }
-    if (misses === len) return 0; // nothing can be found
-    // biome-ignore lint/style/noNonNullAssertion: misses < len
-    const perLength = coveragePerLength[misses]! / length;
-    // biome-ignore lint/style/noNonNullAssertion: misses < len
-    return fixed[misses]! + Math.min(coverageCap[misses]!, perLength);
-  };
+/** The {@link scoreCeiling} bound for a target with classes `mask` and length `length`. */
+export function scoreBound(c: Ceiling, mask: number, length: number): number {
+  let misses = 0;
+  for (let m = c.queryMask & ~mask; m !== 0; m &= m - 1) {
+    // biome-ignore lint/style/noNonNullAssertion: class index in [0, 31]
+    misses += c.classCount[31 - Math.clz32(m & -m)]!;
+  }
+  if (misses === c.length) return 0; // nothing can be found
+  // biome-ignore lint/style/noNonNullAssertion: misses < length
+  const perLength = c.coveragePerLength[misses]! / length;
+  // biome-ignore lint/style/noNonNullAssertion: misses < length
+  return c.fixed[misses]! + Math.min(c.coverageCap[misses]!, perLength);
 }

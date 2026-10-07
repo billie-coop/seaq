@@ -574,119 +574,125 @@ function separateMatches(
   fuzziness: number,
 ): SeaqMatch[] {
   const wordPlans = plan.words.length > 1 ? plan.words.map(planQuery) : null;
-  const winners: Winner[] = [];
-  scoreFields(prepareFields(item, paths), plan, wordPlans, fuzziness, winners);
-  return winners.map((w) => singleMatch(w.value, w.plan, fuzziness, null, w.key));
-}
-
-/** A field value that won, and the plan it was scored with. */
-interface Winner {
-  key: string;
-  value: string;
-  plan: QueryPlan;
-}
-
-// Where the last bestValueScore() that scored above 0 found its best score
-let winField = 0;
-let winValue = 0;
-
-/** The best score of `plan` across all field values. */
-function bestValueScore(fields: Field[], plan: QueryPlan, fuzziness: number): number {
-  let best = 0;
-  for (let fi = 0; fi < fields.length; fi++) {
-    // biome-ignore lint/style/noNonNullAssertion: fi < fields.length
-    const field = fields[fi]!;
-    for (let vi = 0; vi < field.values.length; vi++) {
-      // biome-ignore lint/style/noNonNullAssertion: values, lowers and masks are parallel
-      const mask = field.masks[vi]!;
-      // Bitmask gate. Strict: a query class is missing. Fuzzy: no overlap.
-      if (fuzziness ? (plan.mask & mask) === 0 : (plan.mask & ~mask) !== 0) continue;
-      // biome-ignore lint/style/noNonNullAssertion: values, lowers and masks are parallel
-      const s = scoreString(plan, field.values[vi]!, field.lowers[vi]!, -1, fuzziness);
-      if (s > best) {
-        best = s;
-        winField = fi;
-        winValue = vi;
-      }
-    }
-  }
-  return best;
-}
-
-/** The winner found by the last bestValueScore() that scored above 0. */
-function lastWinner(fields: Field[], plan: QueryPlan): Winner {
-  // biome-ignore lint/style/noNonNullAssertion: a valid field index
-  const field = fields[winField]!;
-  // biome-ignore lint/style/noNonNullAssertion: a valid value index
-  return { key: field.key, value: field.values[winValue]!, plan };
+  const matches: SeaqMatch[] = [];
+  scoreFields(prepareFields(item, paths), plan, wordPlans, fuzziness, matches);
+  return matches;
 }
 
 /**
- * Score one item's fields in separate mode. With `winners`, also records
- * the field values that won.
+ * Score one item's fields in separate mode: the best score of the whole
+ * query against any one value, or for multi-word queries the average of
+ * each word's best value score when that's higher ("john smith" across
+ * firstName and lastName). With `matches` (only for results), the winning
+ * values are added with highlight positions.
  */
 function scoreFields(
   fields: Field[],
   plan: QueryPlan,
   wordPlans: QueryPlan[] | null,
   fuzziness: number,
-  winners: Winner[] | null,
+  matches: SeaqMatch[] | null,
 ): number {
-  const whole = bestValueScore(fields, plan, fuzziness);
-  const wholeWinner = winners && whole > 0 ? lastWinner(fields, plan) : null;
-  if (wordPlans && whole < 1) {
-    const byWord = scoreWords(fields, wordPlans, fuzziness, whole, winners);
-    if (byWord > whole) return byWord;
-  }
-  if (wholeWinner) winners?.push(wholeWinner);
-  return whole;
-}
-
-/**
- * Separate mode, multi-word queries: the average of each word's best field
- * value score, or 0 when that can't beat `whole`. Skipped unless every word
- * matches some value strictly, a cheap check that rules out most items.
- */
-function scoreWords(
-  fields: Field[],
-  wordPlans: QueryPlan[],
-  fuzziness: number,
-  whole: number,
-  winners: Winner[] | null,
-): number {
-  for (const wp of wordPlans) if (!matchesSomeValue(fields, wp)) return 0;
-  const found: Winner[] = [];
-  let sum = 0;
-  for (let w = 0; w < wordPlans.length; w++) {
-    // biome-ignore lint/style/noNonNullAssertion: w < wordPlans.length
-    const wp = wordPlans[w]!;
-    // Above 0: the word matches some value strictly
-    sum += bestValueScore(fields, wp, fuzziness);
-    if (winners) found.push(lastWinner(fields, wp));
-    // Give up once even perfect scores for the remaining words can't win
-    if ((sum + wordPlans.length - (w + 1)) / wordPlans.length <= whole) return 0;
-  }
-  winners?.push(...found);
-  return sum / wordPlans.length;
-}
-
-/** Does the one-word `wordPlan` match some field value strictly? */
-function matchesSomeValue(fields: Field[], wordPlan: QueryPlan): boolean {
-  // biome-ignore lint/style/noNonNullAssertion: a one-word plan
-  const word = wordPlan.lowerWords[0]!;
-  for (const field of fields) {
-    for (let vi = 0; vi < field.lowers.length; vi++) {
-      if (
-        // biome-ignore lint/style/noNonNullAssertion: lowers and masks are parallel
-        (wordPlan.mask & ~field.masks[vi]!) === 0 &&
-        // biome-ignore lint/style/noNonNullAssertion: vi < lowers.length
-        matchesStrict(field.lowers[vi]!, word)
-      ) {
-        return true;
+  // The whole query against each value
+  let whole = 0;
+  let wholeField = 0;
+  let wholeValue = 0;
+  for (let fi = 0; fi < fields.length; fi++) {
+    // biome-ignore lint/style/noNonNullAssertion: fi < fields.length
+    const { values, lowers, masks } = fields[fi]!;
+    for (let vi = 0; vi < values.length; vi++) {
+      // biome-ignore lint/style/noNonNullAssertion: values, lowers and masks are parallel
+      const mask = masks[vi]!;
+      // Bitmask gate. Strict: a query class is missing. Fuzzy: no overlap.
+      if (fuzziness ? (plan.mask & mask) === 0 : (plan.mask & ~mask) !== 0) continue;
+      // biome-ignore lint/style/noNonNullAssertion: values, lowers and masks are parallel
+      const s = scoreString(plan, values[vi]!, lowers[vi]!, -1, fuzziness);
+      if (s > whole) {
+        whole = s;
+        wholeField = fi;
+        wholeValue = vi;
       }
     }
   }
-  return false;
+
+  // Each word against each value, keeping each word's best. Only when the
+  // whole query didn't match perfectly, and every word matches some value
+  // strictly — a cheap check that rules out most items.
+  if (wordPlans !== null && whole < 1 && everyWordMatches(fields, wordPlans)) {
+    const n = wordPlans.length;
+    // Winning [field, value] per word, only for matches
+    const wins: number[] | null = matches ? [] : null;
+    let sum = 0;
+    let w = 0;
+    for (; w < n; w++) {
+      // biome-ignore lint/style/noNonNullAssertion: w < n
+      const wp = wordPlans[w]!;
+      let best = 0;
+      for (let fi = 0; fi < fields.length; fi++) {
+        // biome-ignore lint/style/noNonNullAssertion: fi < fields.length
+        const { values, lowers, masks } = fields[fi]!;
+        for (let vi = 0; vi < values.length; vi++) {
+          // biome-ignore lint/style/noNonNullAssertion: values, lowers and masks are parallel
+          const mask = masks[vi]!;
+          if (fuzziness ? (wp.mask & mask) === 0 : (wp.mask & ~mask) !== 0) continue;
+          // biome-ignore lint/style/noNonNullAssertion: values, lowers and masks are parallel
+          const s = scoreString(wp, values[vi]!, lowers[vi]!, -1, fuzziness);
+          if (s > best) {
+            best = s;
+            if (wins) {
+              wins[2 * w] = fi;
+              wins[2 * w + 1] = vi;
+            }
+          }
+        }
+      }
+      sum += best;
+      // Give up once even perfect scores for the remaining words can't win
+      if ((sum + n - w - 1) / n <= whole) break;
+    }
+    // Not given up: the average beats the whole-query score
+    if (w === n) {
+      if (matches && wins) {
+        for (let i = 0; i < n; i++) {
+          // biome-ignore lint/style/noNonNullAssertion: every word has a winner
+          const field = fields[wins[2 * i]!]!;
+          // biome-ignore lint/style/noNonNullAssertion: every word has a winner
+          const value = field.values[wins[2 * i + 1]!]!;
+          // biome-ignore lint/style/noNonNullAssertion: i < n
+          matches.push(singleMatch(value, wordPlans[i]!, fuzziness, null, field.key));
+        }
+      }
+      return sum / n;
+    }
+  }
+
+  if (matches) {
+    // A result that the words didn't win scored above 0 on the whole query
+    // biome-ignore lint/style/noNonNullAssertion: wholeField is a valid field
+    const field = fields[wholeField]!;
+    // biome-ignore lint/style/noNonNullAssertion: wholeValue is a valid value
+    matches.push(singleMatch(field.values[wholeValue]!, plan, fuzziness, null, field.key));
+  }
+  return whole;
+}
+
+/** Does every one-word plan match some field value strictly? */
+function everyWordMatches(fields: Field[], wordPlans: QueryPlan[]): boolean {
+  for (const wp of wordPlans) {
+    // biome-ignore lint/style/noNonNullAssertion: a one-word plan
+    const word = wp.lowerWords[0]!;
+    let found = false;
+    for (let fi = 0; fi < fields.length && !found; fi++) {
+      // biome-ignore lint/style/noNonNullAssertion: fi < fields.length
+      const { lowers, masks } = fields[fi]!;
+      for (let vi = 0; vi < lowers.length && !found; vi++) {
+        // biome-ignore lint/style/noNonNullAssertion: lowers and masks are parallel
+        found = (wp.mask & ~masks[vi]!) === 0 && matchesStrict(lowers[vi]!, word);
+      }
+    }
+    if (!found) return false;
+  }
+  return true;
 }
 
 /** Push the string form of a leaf value onto `list` (skips null/undefined). */
