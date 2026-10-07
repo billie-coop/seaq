@@ -121,6 +121,11 @@ describe('scoreString', () => {
     });
   });
 
+  test('words matching the same characters cap target coverage at 1', () => {
+    // Each "aa" covers the whole target; uncapped, the score would be 1.28
+    expect(score('aa', 'aa aa aa')).toBeCloseTo(0.86);
+  });
+
   describe('consecutive bonus after fuzzy skip', () => {
     test('skipped char should not grant consecutive bonus to next match', () => {
       // "btn" vs "tsconfig.json": 'b' is missing, so 't' at index 0 must not

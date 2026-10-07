@@ -47,7 +47,7 @@ export interface QueryPlan {
   /** Words as typed (for case bonuses) and lowercased (for matching). */
   words: string[];
   lowerWords: string[];
-  /** Characters across all words, not counting whitespace between them. */
+  /** Characters (code points) across all words, not counting whitespace between them. */
   length: number;
   /** {@link charMask} of all words: whitespace in the query is never required. */
   mask: number;
@@ -57,7 +57,9 @@ export function planQuery(query: string): QueryPlan {
   const words = query.split(/\s+/).filter(Boolean);
   const lowerWords = words.map(lowercase);
   const joined = lowerWords.join('');
-  return { query, words, lowerWords, length: joined.length, mask: charMask(joined) };
+  let length = 0;
+  for (const _ of joined) length++;
+  return { query, words, lowerWords, length, mask: charMask(joined) };
 }
 
 // Per-character scores. Word starts (BASE + WORD_START = 0.9) count about
@@ -105,6 +107,14 @@ const starts = newAlignment();
  */
 const afterSpace = (lower: string, pos: number) => pos > 0 && lower.charCodeAt(pos - 1) === 32;
 
+/** 2 at a surrogate pair (a character outside the BMP), otherwise 1. */
+const unitsAt = (s: string, i: number) =>
+  (s.charCodeAt(i) & 0xfc00) === 0xd800 &&
+  i + 1 < s.length &&
+  (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00
+    ? 2
+    : 1;
+
 const charScore = (lower: string, pos: number, startAt: number, prevFound: boolean) =>
   pos === startAt && prevFound ? CONSECUTIVE : BASE + (afterSpace(lower, pos) ? WORD_START : 0);
 
@@ -146,44 +156,52 @@ function align(
   let prevFound = true;
   if (collect) a.positions.length = 0;
 
-  for (let i = 0; i < lowerWord.length; i++) {
-    const ch = lowerWord.charAt(i);
+  const wordLength = lowerWord.length;
+  for (let i = 0; i < wordLength; ) {
+    const n = unitsAt(lowerWord, i);
+    const ch = n === 1 ? lowerWord.charAt(i) : lowerWord.slice(i, i + 2);
     let pos = lower.indexOf(ch, startAt);
     if (pos < 0) {
       if (!fuzzy) return false;
       misses++;
       prevFound = false;
+      i += n;
       continue;
     }
 
     if (pos > startAt) {
+      // The next query character, `m` units at `j`, right before this one
+      const j = i + n;
+      const m = j < wordLength ? unitsAt(lowerWord, j) : 0;
       if (
-        i + 1 < lowerWord.length &&
-        lower.charCodeAt(pos - 1) === lowerWord.charCodeAt(i + 1) &&
-        (!preferStarts || pos === startAt + 1)
+        m !== 0 &&
+        pos - m >= startAt &&
+        lower.charCodeAt(pos - 1) === lowerWord.charCodeAt(j + m - 1) &&
+        (m === 1 || lower.charCodeAt(pos - 2) === lowerWord.charCodeAt(j)) &&
+        (!preferStarts || pos === startAt + m)
       ) {
-        const at = pos - 1;
+        const at = pos - m;
         rs +=
           charScore(lower, at, startAt, prevFound) +
-          caseBonus(raw, at, word, lowerWord, i + 1) +
+          caseBonus(raw, at, word, lowerWord, j) +
           CONSECUTIVE +
           caseBonus(raw, pos, word, lowerWord, i);
         // The character may also start a word later on, unswapped ("smith"
         // in "Msith Smith"): let the word-start alignment try
         skippedMask |= charBit(lower.charCodeAt(pos));
         if (first < 0) first = at;
-        if (collect) a.positions.push(at, pos);
+        if (collect) for (let p = at; p < pos + n; p++) a.positions.push(p);
         swaps++;
-        startAt = pos + 1;
+        startAt = pos + n;
         prevFound = true;
-        i++;
+        i = j + m;
         continue;
       }
       if (!afterSpace(lower, pos)) {
         if (preferStarts) {
-          for (let j = lower.indexOf(ch, pos + 1); j >= 0; j = lower.indexOf(ch, j + 1)) {
-            if (afterSpace(lower, j)) {
-              pos = j;
+          for (let k = lower.indexOf(ch, pos + 1); k >= 0; k = lower.indexOf(ch, k + 1)) {
+            if (afterSpace(lower, k)) {
+              pos = k;
               break;
             }
           }
@@ -194,9 +212,13 @@ function align(
 
     rs += charScore(lower, pos, startAt, prevFound) + caseBonus(raw, pos, word, lowerWord, i);
     if (first < 0) first = pos;
-    if (collect) a.positions.push(pos);
-    startAt = pos + 1;
+    if (collect) {
+      a.positions.push(pos);
+      if (n === 2) a.positions.push(pos + 1);
+    }
+    startAt = pos + n;
     prevFound = true;
+    i += n;
   }
 
   a.rs = rs;
@@ -304,7 +326,7 @@ export function scoreString(
   if (coverage > 1) coverage = 1;
   let score = (0.3 * coverage + 0.7 * (rs / plan.length)) / fuzzies;
 
-  if (lowerWords[0]!.charCodeAt(0) === lower.charCodeAt(0) && score < 0.85) score += FIRST_CHAR;
+  if (lowerWords[0]!.codePointAt(0) === lower.codePointAt(0) && score < 0.85) score += FIRST_CHAR;
   if (swaps > 0) score *= SWAP_PENALTY ** swaps;
   if (outOfOrder) score *= WORD_ORDER_PENALTY;
 
@@ -355,9 +377,7 @@ export function scoreCeiling(plan: QueryPlan, fuzziness: number): Ceiling {
   const words = plan.words.length;
   const classCount = new Int32Array(32);
   for (const word of plan.lowerWords) {
-    for (let i = 0; i < word.length; i++) {
-      classCount[31 - Math.clz32(charBit(word.charCodeAt(i)))]!++;
-    }
+    for (const ch of word) classCount[31 - Math.clz32(charBit(ch.charCodeAt(0)))]!++;
   }
   const fixed = new Float64Array(len);
   const coverageCap = new Float64Array(len);

@@ -32,7 +32,9 @@ const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rand() * xs.length)] as T
 
 // Repeated letters, capitals, a character whose lowercase form is longer
 // (İ), Greek sigma (lowercased by context: final 'ς', otherwise 'σ'),
-// (İ), accents, digits, punctuation and runs of whitespace
+// accents, characters outside the BMP (two UTF-16 units; 😀 shares its
+// first unit with 😁, its second with 🈀), digits, punctuation and runs of
+// whitespace
 const chunks = [
   'a',
   'n',
@@ -50,6 +52,10 @@ const chunks = [
   'ΟΣ',
   'ς',
   'é',
+  '😀',
+  '😁',
+  '🈀',
+  '𠀋',
   '1',
   '-',
   'x',
@@ -70,8 +76,9 @@ const randomText = () => {
 /** A query typed from `text`: a slice, then maybe a swap, a typo, a reorder or a case change. */
 function randomQuery(text: string): string {
   if (rand() < 0.15) return randomText();
-  const start = Math.floor(rand() * text.length);
-  let q = text.slice(start, start + 1 + Math.floor(rand() * 8));
+  const all = [...text];
+  const start = Math.floor(rand() * all.length);
+  let q = all.slice(start, start + 1 + Math.floor(rand() * 8)).join('');
   const chars = [...q];
   const r = rand();
   if (r < 0.25 && chars.length > 2) {
@@ -88,9 +95,12 @@ function randomQuery(text: string): string {
   return q.trim() ? q : 'a';
 }
 
-/** Does `word` match `target` strictly? Tries every placement (exponential, small inputs only). */
-function bruteMatches(target: string, word: string, from = 0): boolean {
-  if (word === '') return true;
+/**
+ * Does `word` match `target` strictly? Both are arrays of characters (code
+ * points). Tries every placement (exponential, small inputs only).
+ */
+function bruteMatches(target: string[], word: string[], from = 0): boolean {
+  if (word.length === 0) return true;
   for (let p = from; p < target.length; p++) {
     if (target[p] === word[0] && bruteMatches(target, word.slice(1), p + 1)) return true;
     if (
@@ -118,7 +128,7 @@ const strictMatch = (raw: string, query: string) =>
     query
       .split(/\s+/)
       .filter(Boolean)
-      .every((w) => bruteMatches(refLower(raw), refLower(w))));
+      .every((w) => bruteMatches([...refLower(raw)], [...refLower(w)])));
 
 /** What seaq should return for plain strings, from scores alone. */
 function reference(
@@ -141,9 +151,14 @@ function reference(
 
 /** Check scores and highlights of `includeMatches` results. */
 function checkResults(results: SeaqResult<unknown>[], query: string): void {
-  // A character and its case partners (first code unit: 'İ' → 'i')
+  // A code unit and its case partners ('İ' → 'i'); the query's code units
+  // in every case
   const fold = (c: string) => [c, c.toLowerCase()[0], c.toUpperCase()[0]];
-  const queryChars = new Set([...query].flatMap(fold));
+  const queryUnits = new Set(
+    [query, query.toLowerCase(), query.toUpperCase()].flatMap((q) => q.split('')),
+  );
+  const isHigh = (s: string, i: number) => (s.charCodeAt(i) & 0xfc00) === 0xd800;
+  const isLow = (s: string, i: number) => (s.charCodeAt(i) & 0xfc00) === 0xdc00;
   for (const { score, matches } of results) {
     expect(score).toBeGreaterThan(0);
     expect(score).toBeLessThanOrEqual(1);
@@ -154,10 +169,13 @@ function checkResults(results: SeaqResult<unknown>[], query: string): void {
         expect(start).toBeGreaterThan(last + 1); // sorted, separate ranges
         expect(end).toBeGreaterThanOrEqual(start);
         expect(end).toBeLessThan(value.length);
+        // Never half of a surrogate pair
+        expect(isLow(value, start) && isHigh(value, start - 1)).toBe(false);
+        expect(isHigh(value, end) && isLow(value, end + 1)).toBe(false);
         for (let i = start; i <= end; i++) {
           // Query characters only (an exact match also covers its spaces)
           if (value !== query) {
-            expect(fold(value[i] as string).some((c) => queryChars.has(c))).toBe(true);
+            expect(fold(value[i] as string).some((c) => queryUnits.has(c))).toBe(true);
           }
         }
         last = end;

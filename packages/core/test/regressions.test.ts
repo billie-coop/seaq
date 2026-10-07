@@ -33,6 +33,27 @@ describe('characters whose lowercase form is longer (İ)', () => {
   });
 });
 
+describe('characters outside the BMP (two UTF-16 units)', () => {
+  test('are matched and highlighted whole', () => {
+    const [result] = seaq(['𠀋𠀌x'], '𠀌', { includeMatches: true });
+    expect(result?.matches[0]?.indices).toEqual([[2, 3]]);
+  });
+
+  test("halves of different characters don't make a match", () => {
+    // 😀 is D83D DE00; 😁🈀 is D83D DE01 D83C DE00
+    for (const cache of [false, true]) {
+      expect(seaq(['😁🈀'], '😀', { fuzziness: 0, cache })).toEqual([]);
+      // No partial credit for a shared first unit either
+      expect(seaq(['😁 pizza'], '😀', { cache })).toEqual([]);
+    }
+  });
+
+  test('can be swapped', () => {
+    const [result] = seaq(['😀🍕 party'], '🍕😀', { fuzziness: 0, includeMatches: true });
+    expect(result?.matches[0]?.indices).toEqual([[0, 3]]);
+  });
+});
+
 describe('swapped pairs after skipped text', () => {
   const people = [
     { first: 'John', last: 'Smith' },

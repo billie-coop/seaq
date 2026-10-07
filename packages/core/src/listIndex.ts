@@ -212,7 +212,12 @@ function scoreStrict(index: ListIndex, plan: QueryPlan, top: TopScores): number 
 
   const query = plan.lowerWords.join(' ');
   const last = index.lastQuery;
-  if (last !== null && query.startsWith(last)) {
+  if (
+    last !== null &&
+    query.startsWith(last) &&
+    // A prefix ending inside a surrogate pair isn't a prefix of characters
+    (query.length === last.length || (query.charCodeAt(last.length) & 0xfc00) !== 0xdc00)
+  ) {
     // Typing: a strict match for the longer query is also a strict match for
     // its prefix, so only the prefix's matches can match now. `matched` is
     // written in place — it never overtakes the read position.
