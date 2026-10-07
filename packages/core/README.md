@@ -135,7 +135,7 @@ Returns a new array of matching items sorted by relevance (highest score first).
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `keys` | `string[]` | -- | Fields to search. Supports dot notation for nested properties (`'address.city'`) and automatic array traversal (`'emails.address'`). Omit when searching a plain `string[]`; without `keys`, non-string items are matched against their JSON representation. |
-| `fuzziness` | `number` | `0.2` | Typo tolerance from 0 to 1 (clamped). `0` = strict (every character must match). `0.2` = light tolerance. `0.5` = moderate. `0.8`+ = very loose. |
+| `fuzziness` | `number` | `0` | Tolerance for characters that aren't in the item, from 0 to 1 (clamped). `0` = every query character must exist; shorthand (`steplau`), acronyms, adjacent swaps (`laguht`) and any word order still match. `0.2` = light typo tolerance. `0.5` = moderate. `0.8`+ = very loose. |
 | `fieldMode` | `'joined' \| 'separate'` | `'joined'` | `'joined'` concatenates all field values into one string before scoring -- supports cross-field queries like "john smith" matching firstName + lastName. `'separate'` scores each field independently and takes the best. Ignored for plain string arrays. |
 | `limit` | `number` | `10` | Maximum results to return. Uses a min-heap internally for O(n log k) selection, faster than full-sorting then slicing. Set to `Infinity` to return all matches; `0` or negative returns `[]`. |
 | `threshold` | `number` | `0.3` | Relative score cutoff. Results scoring below `topScore * threshold` are dropped. `0` = no filtering (return everything with score > 0). `1` = only near-perfect matches. Note: higher = stricter -- the opposite polarity of Fuse.js's `threshold`. |

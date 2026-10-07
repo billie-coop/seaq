@@ -1,8 +1,8 @@
 /**
  * Seaq is a Fuzzy searching utility function.
  */
-import { charMask, scoreIndexed } from './listIndex';
-import { string_score } from './string_score';
+import { scoreIndexed } from './listIndex';
+import { charMask, matchesStrict, planQuery, type QueryPlan, scoreString } from './score';
 
 export { charMask };
 
@@ -41,7 +41,9 @@ export interface SeaqResult<T> {
  * Configuration for {@link seaq} search behavior.
  *
  * All options are optional — calling `seaq(list, query)` with no options
- * searches plain string arrays with light fuzzy matching (fuzziness 0.2).
+ * searches a plain string array for items containing every query character:
+ * shorthand ("steplau"), acronyms ("NYC"), adjacent swaps ("laguht") and
+ * words in any order all match; missing characters don't.
  */
 export interface SeaqOptions<T> {
   /**
@@ -56,12 +58,15 @@ export interface SeaqOptions<T> {
    */
   keys?: Array<Extract<keyof T, string>> | string[];
   /**
-   * Fuzziness tolerance for typos, from 0 to 1. Values outside that range
-   * are clamped.
+   * Tolerance for characters that aren't in the item at all (typos like
+   * "stephan" or "steve" for "Stephen"), from 0 to 1. Values outside that
+   * range are clamped.
    *
-   * - `0.2` (default) — light tolerance, catches minor typos like "jonh" → "john"
-   * - `0` — strict mode, every character must match somewhere
-   * - `0.5` — moderate tolerance, good general-purpose starting point
+   * - `0` (default) — every query character must be found. Shorthand
+   *   ("steplau"), acronyms, adjacent swaps ("jonh" → "john") and any word
+   *   order still match. Fastest, especially with `cache: true`.
+   * - `0.2` — light tolerance: missing characters allowed, scored lower
+   * - `0.5` — moderate tolerance
    * - `0.8–1` — very loose, matches almost anything (rarely useful)
    */
   fuzziness?: number;
@@ -141,7 +146,7 @@ export interface SeaqOptions<T> {
  * @returns Filtered and sorted array of matching items
  *
  * @example
- * // Search objects by specific keys (joined mode + fuzziness 0.2 by default)
+ * // Search objects by specific keys (joined mode, every character must match)
  * seaq(contacts, 'john', { keys: ['name', 'email'] })
  *
  * @example
@@ -149,12 +154,12 @@ export interface SeaqOptions<T> {
  * seaq(contacts, 'john smith', { keys: ['firstName', 'lastName'], fieldMode: 'joined' })
  *
  * @example
- * // Strict mode — every character must match, no typo tolerance
- * seaq(contacts, 'john', { keys: ['name'], fuzziness: 0 })
+ * // Shorthand, swapped letters and word order work by default
+ * seaq(contacts, 'laguht steph', { keys: ['name'] })
  *
  * @example
- * // Higher fuzziness for more typo tolerance
- * seaq(contacts, 'jonh', { keys: ['name'], fuzziness: 0.5 })
+ * // Typo tolerance for characters that aren't there at all
+ * seaq(contacts, 'stephan', { keys: ['name'], fuzziness: 0.2 })
  *
  * @example
  * // Nested property + array traversal
@@ -184,9 +189,9 @@ export function seaq<T>(
   options?: SeaqOptions<T>,
 ): Array<T> | SeaqResult<T>[] {
   const keys = options?.keys as string[] | undefined;
-  const rawFuzziness = options?.fuzziness === undefined ? 0.2 : options.fuzziness;
+  const rawFuzziness = options?.fuzziness === undefined ? 0 : options.fuzziness;
   // Clamp to the documented [0, 1] range — fuzziness > 1 would flip the
-  // miss penalty into a score bonus inside string_score
+  // miss penalty into a score bonus inside the scorer
   const fuzziness = rawFuzziness < 0 ? 0 : rawFuzziness > 1 ? 1 : rawFuzziness;
   const fieldMode = options?.fieldMode ?? 'joined';
   const limit = options?.limit ?? 10;
@@ -486,12 +491,9 @@ function computeMatches<T>(
   fuzziness: number | undefined,
   fieldMode: 'joined' | 'separate',
 ): void {
-  const lowerQuery = query.toLowerCase();
-  const tokens =
-    fieldMode === 'separate' && keys && query.includes(' ')
-      ? query.split(/\s+/).filter(Boolean)
-      : null;
-  const lowerTokens = tokens?.map((t) => t.toLowerCase()) ?? null;
+  const plan = planQuery(query);
+  const fz = fuzziness ?? 0;
+  const tokenPlans = separateTokenPlans(plan, keys, fieldMode);
 
   for (const meta of items) {
     if (keys && keyPaths) {
@@ -510,19 +512,17 @@ function computeMatches<T>(
           // biome-ignore lint/style/noNonNullAssertion: desc.valueIdx was set from a valid in-bounds index during scoring
           const value = field.values[desc.valueIdx]!;
           const positions: number[] = [];
-          const s = string_score(value, query, fuzziness, lowerQuery, positions);
+          const s = scoreString(plan, value, value.toLowerCase(), fz, positions);
           meta.matches = [
             { key: field.key, value, indices: positionsToRanges(positions), score: s },
           ];
         } else {
           // Path B: rescore each token against its winning field.
-          // tokens/lowerTokens are guaranteed non-null here: desc.path === 'B' is only set
-          // when scoreItems Path B fired, which required tokens && lowerTokens; the same
+          // tokenPlans is non-null here: desc.path === 'B' is only set when
+          // scoreItems Path B fired, which required token plans; the same
           // construction conditions hold here.
           // biome-ignore lint/style/noNonNullAssertion: see invariant above
-          const tks = tokens!;
-          // biome-ignore lint/style/noNonNullAssertion: see invariant above
-          const ltks = lowerTokens!;
+          const tps = tokenPlans!;
           const tokenMatches: SeaqMatch[] = [];
           for (let t = 0; t < desc.fieldIndices.length; t++) {
             // biome-ignore lint/style/noNonNullAssertion: t < desc.fieldIndices.length by loop guard
@@ -532,8 +532,8 @@ function computeMatches<T>(
             // biome-ignore lint/style/noNonNullAssertion: valueIdx recorded as valid in-bounds index during scoring
             const value = field.values[valueIdx]!;
             const positions: number[] = [];
-            // biome-ignore lint/style/noNonNullAssertion: t in-bounds; tks/ltks parallel
-            const s = string_score(value, tks[t]!, fuzziness, ltks[t]!, positions);
+            // biome-ignore lint/style/noNonNullAssertion: t in-bounds; one plan per token
+            const s = scoreString(tps[t]!, value, value.toLowerCase(), fz, positions);
             tokenMatches.push({
               key: field.key,
               value,
@@ -549,7 +549,7 @@ function computeMatches<T>(
         // rescore with positions, and split them back into per-field matches
         const { joined, segments } = buildJoinedSegments(meta.item, keys, keyPaths);
         const positions: number[] = [];
-        string_score(joined, query, fuzziness, lowerQuery, positions);
+        scoreString(plan, joined, joined.toLowerCase(), fz, positions);
         meta.matches = mapPositionsToSegments(positions, segments, meta.score);
       }
     } else {
@@ -562,7 +562,7 @@ function computeMatches<T>(
             ? String(item)
             : JSON.stringify(item);
       const positions: number[] = [];
-      string_score(value, query, fuzziness, lowerQuery, positions);
+      scoreString(plan, value, value.toLowerCase(), fz, positions);
       meta.matches = [{ value, indices: positionsToRanges(positions), score: meta.score }];
     }
   }
@@ -589,17 +589,17 @@ function scoreItems<T>(
   includeMatches: boolean,
   useCache: boolean,
 ): { items: Array<MetaDataItem<T>>; maxScore: number } {
-  // Pre-lowercase query once instead of per-item
-  const lowerQuery = query.toLowerCase();
+  const plan = planQuery(query);
+  const fz = fuzziness ?? 0;
 
-  // Token splitting for separate mode multi-word queries
-  const tokens =
-    fieldMode === 'separate' && keys && query.includes(' ')
-      ? query.split(/\s+/).filter(Boolean)
-      : null;
-  const lowerTokens = tokens?.map((t) => t.toLowerCase());
+  // Separate mode multi-word queries also score each word on its own field
+  // (Path B), so "john smith" can match firstName + lastName
+  const tokenPlans = separateTokenPlans(plan, keys, fieldMode);
+  const tokens = tokenPlans ? plan.words : null;
+  const lowerTokens = tokenPlans ? plan.lowerWords : null;
 
-  const queryMask = charMask(lowerQuery);
+  // Words match independently, so whitespace in the query is never required
+  const queryMask = charMask(plan.lowerWords.join(''));
   const tokenMasks = lowerTokens?.map((t) => charMask(t));
 
   const cacheSig = useCache && keys ? `${fieldMode}\u0000${keys.join('\u0000')}` : null;
@@ -665,15 +665,13 @@ function scoreItems<T>(
             // Fuzzy: reject if ZERO char overlap (guaranteed score 0)
             // biome-ignore lint/style/noNonNullAssertion: parallel array access; vi in-bounds
             if (fuzziness && (queryMask & field.masks[vi]!) === 0) continue;
-            const s = string_score(
+            const s = scoreString(
+              plan,
               // biome-ignore lint/style/noNonNullAssertion: vi in-bounds for parallel field arrays
               field.values[vi]!,
-              query,
-              fuzziness,
-              lowerQuery,
-              undefined,
               // biome-ignore lint/style/noNonNullAssertion: vi in-bounds for parallel field arrays
               field.lowerValues[vi]!,
+              fz,
             );
             if (s > bestScore) {
               bestScore = s;
@@ -702,7 +700,7 @@ function scoreItems<T>(
                   // biome-ignore lint/style/noNonNullAssertion: t and vi both in-bounds by loop guards
                   if ((tm[t]! & ~field.masks[vi]!) !== 0) continue;
                   // biome-ignore lint/style/noNonNullAssertion: parallel arrays; t and vi in-bounds
-                  if (hasSubsequence(field.lowerValues[vi]!, lowerTokens[t]!)) {
+                  if (matchesStrict(field.lowerValues[vi]!, lowerTokens[t]!)) {
                     tokenFound = true;
                     break;
                   }
@@ -733,17 +731,14 @@ function scoreItems<T>(
                   if (!fuzziness && (tm[t]! & ~field.masks[vi]!) !== 0) continue;
                   // biome-ignore lint/style/noNonNullAssertion: t and vi both in-bounds by loop guards
                   if (fuzziness && (tm[t]! & field.masks[vi]!) === 0) continue;
-                  const s = string_score(
+                  const s = scoreString(
+                    // biome-ignore lint/style/noNonNullAssertion: t in-bounds; one plan per token
+                    tokenPlans![t]!,
                     // biome-ignore lint/style/noNonNullAssertion: vi in-bounds for parallel field arrays
                     field.values[vi]!,
-                    // biome-ignore lint/style/noNonNullAssertion: t in-bounds; tokens/lowerTokens parallel
-                    tokens[t]!,
-                    fuzziness,
-                    // biome-ignore lint/style/noNonNullAssertion: t in-bounds; tokens/lowerTokens parallel
-                    lowerTokens[t]!,
-                    undefined,
                     // biome-ignore lint/style/noNonNullAssertion: vi in-bounds for parallel field arrays
                     field.lowerValues[vi]!,
+                    fz,
                   );
                   if (s > bestTokenScore) {
                     bestTokenScore = s;
@@ -802,7 +797,7 @@ function scoreItems<T>(
             mask = charMask(lowerSearch);
             itemMap.set(cacheSig, { joined: searchString, lower: lowerSearch, mask });
           } else if (!fuzziness) {
-            // Strict mode: the mask gate rejects in O(len) what string_score
+            // Strict mode: the mask gate rejects in O(len) what the scorer
             // rejects in O(query·len), so it pays for itself even uncached
             lowerSearch = searchString.toLowerCase();
             mask = charMask(lowerSearch);
@@ -812,15 +807,17 @@ function scoreItems<T>(
           mask !== undefined && (!fuzziness ? (queryMask & ~mask) !== 0 : (queryMask & mask) === 0);
         score = rejected
           ? 0
-          : string_score(searchString, query, fuzziness, lowerQuery, undefined, lowerSearch);
+          : scoreString(plan, searchString, lowerSearch ?? searchString.toLowerCase(), fz);
       }
-    } else if (typeof item === 'string') {
-      score = string_score(item, query, fuzziness, lowerQuery);
-    } else if (typeof item === 'number') {
-      score = string_score(String(item), query, fuzziness, lowerQuery);
     } else {
-      // Keyless objects are matched against their JSON representation
-      score = string_score(JSON.stringify(item), query, fuzziness, lowerQuery);
+      // Keyless items: strings, numbers, and objects as JSON
+      const value =
+        typeof item === 'string'
+          ? item
+          : typeof item === 'number'
+            ? String(item)
+            : JSON.stringify(item);
+      score = scoreString(plan, value, value.toLowerCase(), fz);
     }
 
     // Only include items with score > 0
@@ -835,13 +832,17 @@ function scoreItems<T>(
   return { items: result, maxScore };
 }
 
-/** Check if `token` appears as a character subsequence in `value` (both must be lowercased). */
-function hasSubsequence(value: string, token: string): boolean {
-  let ti = 0;
-  for (let vi = 0; vi < value.length && ti < token.length; vi++) {
-    if (value[vi] === token[ti]) ti++;
-  }
-  return ti === token.length;
+/**
+ * Per-word query plans for separate mode's per-field token scoring (Path B),
+ * or `null` when Path B doesn't apply (joined mode, no keys, one word).
+ */
+function separateTokenPlans(
+  plan: QueryPlan,
+  keys: string[] | undefined,
+  fieldMode: 'joined' | 'separate',
+): QueryPlan[] | null {
+  if (fieldMode !== 'separate' || !keys || plan.words.length < 2) return null;
+  return plan.words.map((w) => planQuery(w));
 }
 
 type WinDescriptor =

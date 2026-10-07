@@ -17,29 +17,7 @@
  *
  * Both paths return exactly the items and order the unindexed scan would.
  */
-
-/**
- * Build a bitmask of the character classes present in a string:
- * - bits 0-25: a-z presence
- * - bits 27-31: digit presence, bucketed in pairs (0-1, 2-3, 4-5, 6-7, 8-9)
- *   so numeric queries (phone numbers, ids) get real pre-filter selectivity
- * - bit 26: everything else
- *
- * Enables O(1) character-set containment checks before expensive scoring.
- */
-export function charMask(lower: string): number {
-  let mask = 0;
-  for (let i = 0; i < lower.length; i++) {
-    mask |= charBit(lower.charCodeAt(i));
-  }
-  return mask;
-}
-
-function charBit(code: number): number {
-  if (code >= 97 && code <= 122) return 1 << (code - 97);
-  if (code >= 48 && code <= 57) return 1 << (27 + ((code - 48) >> 1));
-  return 1 << 26;
-}
+import { charBit, charMask, planQuery, type QueryPlan, scoreTarget, wordStartMask } from './score';
 
 interface ListIndex {
   /** The list entries each row was prepared from, for change detection. */
@@ -57,6 +35,8 @@ interface ListIndex {
   codeStart: Uint32Array;
   codeEnd: Uint32Array;
   masks: Uint32Array;
+  /** Per-row {@link wordStartMask}, to skip pointless word-start alignments. */
+  wordStarts: Uint32Array;
   /** 32 bitmaps of `words` 32-bit words each: bit r of bitmap b ⇔ row r has class b. */
   bits: Uint32Array;
   words: number;
@@ -93,12 +73,14 @@ export function scoreIndexed<T>(
   prep: (item: T) => string | null,
 ): { items: IndexedScore<T>[]; maxScore: number } {
   const index = getIndex(list, signature, prep);
+  const plan = planQuery(query);
   const lowerQuery = query.toLowerCase();
-  const queryMask = charMask(lowerQuery);
+  // Words match independently, so whitespace in the query is never required
+  const queryMask = charMask(plan.lowerWords.join(''));
   const top = new TopScores(limit, threshold, list.length);
   const rowsLen = fuzziness
-    ? scoreFuzzy(index, query, lowerQuery, queryMask, fuzziness, top)
-    : scoreStrict(index, query, lowerQuery, queryMask, top);
+    ? scoreFuzzy(index, plan, queryMask, fuzziness, top)
+    : scoreStrict(index, plan, lowerQuery, queryMask, top);
 
   // Materialize only rows that can still make the result: anything below
   // the final bar is cut by the threshold or by the top-N selection
@@ -196,6 +178,7 @@ function buildIndex<T>(list: T[], prep: (item: T) => string | null): ListIndex {
     codeStart: new Uint32Array(n),
     codeEnd: new Uint32Array(n),
     masks: new Uint32Array(n),
+    wordStarts: new Uint32Array(n),
     bits: new Uint32Array(32 * words),
     words,
     lastLower: null,
@@ -225,6 +208,7 @@ function prepRow<T>(index: ListIndex, r: number, item: T, prep: (item: T) => str
   writeCodes(index, r, lower);
   const mask = charMask(lower);
   index.masks[r] = mask;
+  index.wordStarts[r] = str === null ? 0 : wordStartMask(str, lower);
   for (let m = mask; m !== 0; m &= m - 1) {
     const at = (31 - Math.clz32(m & -m)) * words + word;
     // biome-ignore lint/style/noNonNullAssertion: at < 32 * words
@@ -270,113 +254,34 @@ function compactCodes(index: ListIndex): void {
 }
 
 /**
- * string_score over a row's packed lowercase codes. Must return exactly
- * what `string_score(raw, query, fuzziness, lowerQuery, undefined,
- * raw.toLowerCase())` returns — same arithmetic in the same order — just
- * without indexOf/charAt string operations (fuzz-tested against it in
- * listIndex.test.ts). Positions in the lowercase codes index into `raw`,
- * as in string_score.
- */
-export function scorePacked(
-  raw: string,
-  query: string,
-  fuzziness: number,
-  lowerQuery: string,
-  codes: Uint16Array,
-  start: number,
-  end: number,
-): number {
-  if (raw === query) return 1;
-  if (query === '' || raw === '') return 0;
-  if (!fuzziness && query.length > raw.length) return 0;
-
-  const lowerLen = end - start;
-  const lowerQueryLen = lowerQuery.length;
-  const wordLength = query.length;
-  let runningScore = 0;
-  let charScore: number;
-  let startAt = 0;
-  let fuzzies = 1;
-  const fuzzyFactor = fuzziness ? 1 - fuzziness : 0;
-  let prevFound = true;
-  let misses = 0;
-
-  for (let i = 0; i < wordLength; i++) {
-    // Next occurrence of the i-th lowercase query unit at or after startAt.
-    // Past the end of lowerQuery, string_score searches for '' — which
-    // indexOf finds at min(startAt, length).
-    let idxOf = -1;
-    if (i < lowerQueryLen) {
-      const code = lowerQuery.charCodeAt(i);
-      for (let j = start + startAt; j < end; j++) {
-        if (codes[j] === code) {
-          idxOf = j - start;
-          break;
-        }
-      }
-    } else {
-      idxOf = startAt < lowerLen ? startAt : lowerLen;
-    }
-
-    if (idxOf === -1) {
-      if (!fuzziness) return 0;
-      fuzzies += fuzzyFactor;
-      prevFound = false;
-      misses++;
-      continue;
-    }
-    if (startAt === idxOf && prevFound) {
-      charScore = 0.7;
-    } else {
-      charScore = 0.1;
-      if (raw.charCodeAt(idxOf - 1) === 32) charScore += 0.8;
-    }
-    if (raw.charCodeAt(idxOf) === query.charCodeAt(i)) charScore += 0.1;
-    runningScore += charScore;
-    startAt = idxOf + 1;
-    prevFound = true;
-  }
-
-  if (fuzziness) {
-    const missRatio = misses / wordLength;
-    runningScore *= (1 - missRatio) * (1 - missRatio);
-  }
-  let finalScore =
-    (0.3 * (runningScore / raw.length) + 0.7 * (runningScore / wordLength)) / fuzzies;
-  if (lowerLen > 0 && lowerQuery.charCodeAt(0) === codes[start] && finalScore < 0.85) {
-    finalScore += 0.15;
-  }
-  return finalScore;
-}
-
-/**
  * Strict scoring. Writes every row scoring > 0 to `index.lastRows` in list
  * order (also the narrowing state for the next keystroke) and returns how
  * many there are.
  */
 function scoreStrict(
   index: ListIndex,
-  query: string,
+  plan: QueryPlan,
   lowerQuery: string,
   queryMask: number,
   top: TopScores,
 ): number {
-  const { strings, codes, codeStart, codeEnd, masks, scores } = index;
+  const { strings, codes, codeStart, codeEnd, masks, wordStarts, scores } = index;
   const matched = index.lastRows;
   let matchedLen = 0;
 
   const score = (r: number) => {
-    const s = scorePacked(
+    const s = scoreTarget(
+      plan,
       // biome-ignore lint/style/noNonNullAssertion: candidates are rows with a non-empty mask, so strings[r] is set
       strings[r]!,
-      query,
-      0,
-      lowerQuery,
       codes,
       // biome-ignore lint/style/noNonNullAssertion: r is a valid row
       codeStart[r]!,
       // biome-ignore lint/style/noNonNullAssertion: r is a valid row
       codeEnd[r]!,
+      0,
+      undefined,
+      wordStarts[r],
     );
     if (s > 0) {
       matched[matchedLen++] = r;
@@ -429,8 +334,7 @@ function scoreStrict(
  */
 function scoreFuzzy(
   index: ListIndex,
-  query: string,
-  lowerQuery: string,
+  plan: QueryPlan,
   queryMask: number,
   fuzziness: number,
   top: TopScores,
@@ -438,21 +342,23 @@ function scoreFuzzy(
   // Narrowing state only holds for strict scores; lastRows is reused below
   index.lastLower = null;
 
-  const { strings, codes, codeStart, codeEnd, masks, scores } = index;
+  const { strings, codes, codeStart, codeEnd, masks, wordStarts, scores } = index;
   const rows = index.lastRows;
   let rowsLen = 0;
   const n = masks.length;
-  const len = query.length;
+  const len = plan.length;
 
   // How many query characters fall in each class: a class missing from a
   // row guarantees at least that many misses
   const classCount = new Uint8Array(32);
-  for (let i = 0; i < len; i++) {
-    const b = 31 - Math.clz32(charBit(lowerQuery.charCodeAt(i)));
-    // biome-ignore lint/style/noNonNullAssertion: b in [0, 31]
-    if (classCount[b]! < 255) classCount[b]!++;
+  for (const word of plan.lowerWords) {
+    for (let i = 0; i < word.length; i++) {
+      const b = 31 - Math.clz32(charBit(word.charCodeAt(i)));
+      // biome-ignore lint/style/noNonNullAssertion: b in [0, 31]
+      if (classCount[b]! < 255) classCount[b]!++;
+    }
   }
-  const ceiling = scoreCeilings(len, 1 - fuzziness);
+  const ceiling = scoreCeilings(len, plan.words.length, 1 - fuzziness);
 
   // Every scores[] slot read below was written earlier in this search, so
   // the buffer needs no clearing between searches
@@ -461,17 +367,18 @@ function scoreFuzzy(
     top.record(s);
   };
   const scoreRow = (r: number) =>
-    scorePacked(
+    scoreTarget(
+      plan,
       // biome-ignore lint/style/noNonNullAssertion: only called for rows with a search string
       strings[r]!,
-      query,
-      fuzziness,
-      lowerQuery,
       codes,
       // biome-ignore lint/style/noNonNullAssertion: r is a valid row
       codeStart[r]!,
       // biome-ignore lint/style/noNonNullAssertion: r is a valid row
       codeEnd[r]!,
+      fuzziness,
+      undefined,
+      wordStarts[r],
     );
 
   // Pass 1: rows containing every query class. They hold the best matches,
@@ -496,8 +403,15 @@ function scoreFuzzy(
         misses += classCount[31 - Math.clz32(m & -m)]!;
       }
       if (misses >= len) continue; // no query character present: score 0
+      // biome-ignore lint/style/noNonNullAssertion: only rows with a search string have a mask
+      const targetLen = strings[r]!.length;
       // biome-ignore lint/style/noNonNullAssertion: misses < len
-      if (ceiling[misses]! < top.bar()) continue;
+      const coverage = Math.min(
+        ceiling.coverage[misses]!,
+        ceiling.coveragePerChar[misses]! / targetLen,
+      );
+      // biome-ignore lint/style/noNonNullAssertion: misses < len
+      if (ceiling.rest[misses]! + coverage < top.bar()) continue;
       record(r, scoreRow(r));
     }
     // biome-ignore lint/style/noNonNullAssertion: r < n
@@ -508,23 +422,38 @@ function scoreFuzzy(
 }
 
 /**
- * Upper bound on string_score's fuzzy-mode result for a query of length
- * `len` with at least `m` misses, for m in [0, len). Per found character the
- * score is at most 1.0 (0.1 base + 0.8 acronym + 0.1 case), found ≤ len - m
- * and found ≤ target length; misses scale the running score by
- * (1 - m/len)² and divide the result by 1 + m·(1 - fuzziness); the
- * first-character bonus adds at most 0.15. A small epsilon absorbs
- * floating-point differences.
+ * Upper bound on the scorer's fuzzy-mode result (see score.ts) for a query
+ * of `len` characters in `words` words with at least `m` misses (m in
+ * [1, len)), split so the target length can tighten it per row:
+ *
+ *   score ≤ rest[m] + min(coverage[m], coveragePerChar[m] / targetLength)
+ *
+ * Per found character the running score gains at most 1.0 (0.1 base + 0.8
+ * acronym + 0.1 case) and found ≤ len - m; misses scale it by k²
+ * (k = 1 - m/len) and divide the result by 1 + m·(1 - fuzziness). So the
+ * query term 0.7·rs/len ≤ 0.7·k³. The coverage term 0.3·min(1, rs/target)
+ * is ≤ 0.3·(len - m)·k² / target, and also ≤ 0.3·min(1, words·k²) because
+ * each word's found characters fit in the target. The first-character bonus
+ * adds at most 0.15; swap and word-order penalties only lower the score. A
+ * small epsilon absorbs floating-point differences. m = 0 is never pruned.
  */
-function scoreCeilings(len: number, fuzzyFactor: number): Float64Array {
-  const ceiling = new Float64Array(len);
-  ceiling[0] = Infinity; // exact matches and bonuses: never prune
+function scoreCeilings(
+  len: number,
+  words: number,
+  fuzzyFactor: number,
+): { rest: Float64Array; coverage: Float64Array; coveragePerChar: Float64Array } {
+  const rest = new Float64Array(len);
+  const coverage = new Float64Array(len);
+  const coveragePerChar = new Float64Array(len);
+  rest[0] = Infinity; // exact matches and bonuses: never prune
   for (let m = 1; m < len; m++) {
     const kept = 1 - m / len;
-    const base = (0.3 * kept * kept + 0.7 * kept * kept * kept) / (1 + m * fuzzyFactor);
-    ceiling[m] = base + 0.15 + 1e-9;
+    const divisor = 1 + m * fuzzyFactor;
+    rest[m] = (0.7 * kept * kept * kept) / divisor + 0.15 + 1e-9;
+    coverage[m] = (0.3 * Math.min(1, words * kept * kept)) / divisor;
+    coveragePerChar[m] = (0.3 * (len - m) * kept * kept) / divisor;
   }
-  return ceiling;
+  return { rest, coverage, coveragePerChar };
 }
 
 // Min-heap of scores (smallest at index 0)

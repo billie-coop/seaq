@@ -78,8 +78,11 @@ describe('large collection', () => {
       limit: Infinity,
       threshold: 0,
     });
-    expect(searchResults).toHaveLength(4);
-    expect(searchResults[0]).toMatchObject({ givenName: 'Nathan' });
+    // Nathan Evans ×3 and Nathan Stevens first; then Anthony Evans/Stevens,
+    // where "nath" matches "anth" with one adjacent swap (lower score)
+    expect(searchResults).toHaveLength(8);
+    expect(searchResults.slice(0, 4).every((c) => c.givenName === 'Nathan')).toBe(true);
+    expect(searchResults.slice(4).every((c) => c.givenName === 'Anthony')).toBe(true);
   });
 
   test('fuzzy search', () => {
@@ -772,13 +775,19 @@ describe('token scoring edge cases', () => {
 
   test('more tokens than fields still works', () => {
     // 3 tokens, 2 keys — should still find Helen Green
-    const results = seaq(people, 'helen henry green', { keys: ['first', 'last'] });
+    // "henry" isn't in Helen Green, so this needs typo tolerance
+    const results = seaq(people, 'helen henry green', { keys: ['first', 'last'], fuzziness: 0.2 });
     expect(results).toContainEqual(expect.objectContaining({ first: 'Helen', last: 'Green' }));
   });
 
   test('one token matches nothing — reduced score but still found', () => {
     // "helen xyz" — "helen" scores high, "xyz" scores 0, average = helen_score / 2
-    const results = seaq(people, 'helen xyz', { keys, limit: Infinity, threshold: 0 });
+    const results = seaq(people, 'helen xyz', {
+      keys,
+      fuzziness: 0.2,
+      limit: Infinity,
+      threshold: 0,
+    });
     expect(results.some((r) => r.first === 'Helen' && r.last === 'Green')).toBe(true);
   });
 });
@@ -876,20 +885,19 @@ describe('perf optimization guards', () => {
     // Exact match on single field → score 1.0, Path B skipped
   });
 
-  test('bitmask passes but subsequence fails → token rejected', () => {
-    // Covers line 376 (hasSubsequence returns false) and 380 (isCandidate = false)
-    // "ba" has same char set as "ab" (bitmask passes) but is not a subsequence
-    const items = [{ name: 'ab' }];
-    const results = seaq(items, 'ab ba', {
+  test('bitmask passes but strict match fails → token rejected', () => {
+    // "cba" has the same char set as "abc" (bitmask passes) but isn't an
+    // in-order match, even allowing adjacent swaps, so Path B rejects it
+    const items = [{ name: 'abc' }];
+    const results = seaq(items, 'abc cba', {
       keys: ['name'],
       fieldMode: 'separate',
       fuzziness: 0,
       limit: Infinity,
       threshold: 0,
     });
-    // Path A: "ab ba" vs "ab" → 'a','b' found, ' ','b','a' strict fail → 0
-    // Path B: token "ab" is subsequence of "ab" ✓, token "ba" bitmask passes but not subsequence → rejected
-    // Result comes from Path A only (which scored 0 in strict mode)
+    // Path A: word "cba" fails strictly against "abc" → 0
+    // Path B: token "abc" matches ✓, token "cba" bitmask passes but fails → rejected
     expect(results).toHaveLength(0);
   });
 

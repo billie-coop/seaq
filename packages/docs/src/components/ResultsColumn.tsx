@@ -54,7 +54,7 @@ function q(s: string): string {
 function seaqSnippet(query: string, keys: string[], config: SeaqConfig): string {
   const opts: string[] = [];
   if (keys.length > 0) opts.push(`keys: [${keys.map(q).join(', ')}]`);
-  if (config.fuzziness !== 0.2) opts.push(`fuzziness: ${config.fuzziness}`);
+  if (config.fuzziness !== 0) opts.push(`fuzziness: ${config.fuzziness}`);
   if (config.fieldMode !== 'joined') opts.push(`fieldMode: '${config.fieldMode}'`);
   if (config.limit != null && config.limit !== 10) opts.push(`limit: ${config.limit}`);
   if (config.threshold !== 0.3) opts.push(`threshold: ${config.threshold}`);
@@ -321,15 +321,15 @@ function SeaqControls({
     <>
       <Select
         label="Fuzziness"
-        hint="Typo tolerance. 0 = strict, every char must match."
+        hint="Tolerance for letters that aren't there. 0 = every letter must exist (shorthand, swaps and word order still match)."
         value={config.fuzziness}
         options={[
-          { value: '0.2', label: '0.2 (default)' },
+          { value: '0', label: '0 (default)' },
           { value: '0.1', label: '0.1' },
+          { value: '0.2', label: '0.2' },
           { value: '0.3', label: '0.3' },
           { value: '0.5', label: '0.5' },
           { value: '0.8', label: '0.8' },
-          { value: '0', label: '0 (strict)' },
         ]}
         onChange={(v) => onChange({ fuzziness: Number(v) })}
       />
