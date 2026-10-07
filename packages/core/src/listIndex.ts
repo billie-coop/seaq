@@ -406,10 +406,10 @@ function scoreFuzzy(
       // biome-ignore lint/style/noNonNullAssertion: only rows with a search string have a mask
       const targetLen = strings[r]!.length;
       // biome-ignore lint/style/noNonNullAssertion: misses < len
-      const coverage = Math.min(
-        ceiling.coverage[misses]!,
-        ceiling.coveragePerChar[misses]! / targetLen,
-      );
+      const coverageCap = ceiling.coverage[misses]!;
+      // biome-ignore lint/style/noNonNullAssertion: misses < len
+      const coverageByLength = ceiling.coveragePerChar[misses]! / targetLen;
+      const coverage = coverageCap < coverageByLength ? coverageCap : coverageByLength;
       // biome-ignore lint/style/noNonNullAssertion: misses < len
       if (ceiling.rest[misses]! + coverage < top.bar()) continue;
       record(r, scoreRow(r));

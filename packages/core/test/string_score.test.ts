@@ -278,8 +278,9 @@ describe('string_score', () => {
       // Both should score > 0
       expect(short).toBeGreaterThan(0);
       expect(long).toBeGreaterThan(0);
-      // Short still wins, but the ratio should be less than 8x (old 50/50 was ~8x)
-      expect(short / long).toBeLessThan(8);
+      // Short still wins by a bounded ratio. ("Button" follows "/", which isn't
+      // a word start, and lowercase typing earns no case bonus — so ~10x)
+      expect(short / long).toBeLessThan(12);
     });
   });
 

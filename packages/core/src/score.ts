@@ -6,7 +6,8 @@
  * Within a word, characters are matched left to right with bonuses for:
  * - **Consecutive characters** — "hel" in "hello" beats "h_e_l"
  * - **Start-of-word / acronym** — "HiMi" strongly matches "Hillsdale Michigan"
- * - **Case match** — exact case adds a small bonus
+ * - **Capitals** — a capital typed in the query that matches a capital in
+ *   the target adds a small bonus (lowercase typing is neutral)
  * - **Shorter targets** — matching in a short string is worth more
  *
  * Two alignments are tried per word — earliest occurrences, and one that
@@ -93,6 +94,16 @@ const positionsA: number[] = [];
 const positionsB: number[] = [];
 
 /**
+ * Small bonus when the query character was typed as a capital and the
+ * target has the same capital there ("HiMi" → Hillsdale Michigan). Lowercase
+ * typing earns nothing, so it doesn't favour lowercase targets.
+ */
+function caseBonus(raw: string, pos: number, word: string, lowerWord: string, i: number): number {
+  const typed = word.charCodeAt(i);
+  return typed !== lowerWord.charCodeAt(i) && raw.charCodeAt(pos) === typed ? 0.1 : 0;
+}
+
+/**
  * Align one query word against the target. `preferStarts` jumps to the next
  * word-start occurrence of a character when it can't continue consecutively.
  * Returns false when a character is missing and fuzziness is off.
@@ -132,10 +143,10 @@ function align(
       codes[here + 1] === code
     ) {
       let cs = prevFound ? 0.7 : 0.1 + (raw.charCodeAt(startAt - 1) === 32 ? 0.8 : 0);
-      if (raw.charCodeAt(startAt) === word.charCodeAt(i + 1)) cs += 0.1;
+      cs += caseBonus(raw, startAt, word, lowerWord, i + 1);
       rs += cs;
       cs = 0.7;
-      if (raw.charCodeAt(startAt + 1) === word.charCodeAt(i)) cs += 0.1;
+      cs += caseBonus(raw, startAt + 1, word, lowerWord, i);
       rs += cs;
       if (first < 0) first = startAt;
       if (out) out.push(startAt, startAt + 1);
@@ -185,7 +196,7 @@ function align(
       // Acronym bonus: a word-start match counts like two consecutive ones
       if (raw.charCodeAt(pos - 1) === 32) cs += 0.8;
     }
-    if (raw.charCodeAt(pos) === word.charCodeAt(i)) cs += 0.1;
+    cs += caseBonus(raw, pos, word, lowerWord, i);
     rs += cs;
     if (first < 0) first = pos;
     if (out) out.push(pos);
