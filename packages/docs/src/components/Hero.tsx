@@ -8,7 +8,7 @@ const contacts = [
 ];
 
 seaq(contacts, 'helgre', { keys: ['name', 'email'] });
-// => [{ name: 'Helen Green', ... }]  — no index, no setup`;
+// => [{ name: 'Helen Green', ... }]  — no setup, no index to manage`;
 
 export function Hero() {
   const [copied, setCopied] = useState(false);
@@ -25,8 +25,8 @@ export function Hero() {
       <div>
         <h1 className="text-4xl font-bold tracking-tight text-gray-900 dark:text-white">seaq</h1>
         <p className="mt-3 text-lg text-gray-600 dark:text-gray-300">
-          Zero-dependency fuzzy search. One function, no index, no setup — works the same on 20
-          items or 20,000.
+          Zero-dependency fuzzy search. One function, no setup, no index to manage — works the same
+          on 20 items or 20,000.
         </p>
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button

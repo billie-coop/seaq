@@ -58,7 +58,7 @@ export function searchSeaq(
       limit: config.limit ?? undefined,
       threshold: config.threshold,
       includeMatches: true,
-      cache: config.cache,
+      cache: config.cache === 'auto' ? undefined : config.cache,
     });
   });
   const top = result.slice(0, config.limit ?? 10);
