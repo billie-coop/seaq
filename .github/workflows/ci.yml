@@ -56,5 +56,8 @@ jobs:
       - name: Test
         run: yarn test
 
+      - name: Coverage (100% of core source)
+        run: yarn coverage
+
       - name: Build
         run: yarn build

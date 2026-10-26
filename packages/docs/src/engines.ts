@@ -54,11 +54,10 @@ export function searchSeaq(
     return seaq(dataset.data, query, {
       keys: keys.length > 0 ? keys : undefined,
       fuzziness: config.fuzziness,
-      fieldMode: config.fieldMode,
       limit: config.limit ?? undefined,
       threshold: config.threshold,
       includeMatches: true,
-      cache: config.cache,
+      cache: config.cache === 'auto' ? undefined : config.cache,
     });
   });
   const top = result.slice(0, config.limit ?? 10);
@@ -76,7 +75,7 @@ export function searchSeaq(
         return highlightRanges(first.value, first.indices);
       }
 
-      // Both field modes return per-field matches with .key set and indices
+      // Matches are per field value, with .key set and indices
       // relative to the field value — highlight every matched field. A key
       // can carry multiple matches (array fields, multi-token queries).
       return buildFieldsHtml(r.item, dataset.keys, (val, key) => {
