@@ -33,3 +33,23 @@ with a prerelease, and 2.0.0 itself goes through the workflow.
    authentication and disallow tokens".
 
 ## Log
+
+All on 2026-11-03 (US time; 2026-11-04 UTC):
+
+- PR #27 (2.0) squash-merged as `28f7790`. Dependabot PRs #28 (vite 6.4.5) and #30
+  (ip-address 10.7.6) rebased and merged. PR #31 (the rename) merged as `7f7e7a6`. CI and
+  the docs deploy passed on `main`.
+- Claimed the name from Stephen's machine: `@billie-coop/seaq@2.0.0-rc.0` on `next`
+  (browser 2FA). npm also created `0.0.0-stage`.
+- Trusted publisher added with `npm trust github` (step 3 above): "publish, stage publish".
+- Release workflow dry run (run 41760183559), then the real run (run 41761058901):
+  `@billie-coop/seaq@2.0.0` is `latest` with an SLSA v1 provenance attestation, and GitHub
+  release `v2.0.0` has the CHANGELOG entry plus generated notes. This validated the trusted
+  publisher. An install from the registry imports in both ESM and CommonJS, and
+  `npm audit signatures` verifies the attestation.
+- Deprecated `@billie-coop/seaq@0.0.0-stage` ("npm staging placeholder; use 2.0.0 or later")
+  and every `seaq` version ("Moved to @billie-coop/seaq: npm install @billie-coop/seaq").
+  The first deprecate attempt failed with a 404 on `-/v1/done` because the browser approval
+  expired; approving within a few minutes works.
+- Still open: the publishing access setting (step 6), which only Stephen can set.
+  `next` still points at `2.0.0-rc.0`.
