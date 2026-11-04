@@ -12,21 +12,21 @@
   "scripts": {
     "build": "yarn workspaces foreach -A run build",
     "test": "yarn workspaces foreach -A run test",
-    "coverage": "yarn workspace seaq test:coverage",
-    "report": "yarn workspace seaq report",
+    "coverage": "yarn workspace @billie-coop/seaq test:coverage",
+    "report": "yarn workspace @billie-coop/seaq report",
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "ts-check": "tsc --build --incremental",
-    "dev": "yarn workspace seaq build && (yarn workspace seaq dev & yarn workspace @seaq/docs dev & wait)",
+    "dev": "yarn workspace @billie-coop/seaq build && (yarn workspace @billie-coop/seaq dev & yarn workspace @seaq/docs dev & wait)",
     "clean": "rm -rf .tsc-out packages/*/dist",
-    "bench:save": "yarn workspace seaq bench:save",
+    "bench:save": "yarn workspace @billie-coop/seaq bench:save",
     "release:verify": "yarn ts-check && yarn check && yarn test && yarn coverage && yarn build",
     "release:pack": "cd packages/core && npm pack --dry-run"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.10",
     "@vitest/coverage-v8": "^4.0.18",
-    "seaq": "1.1.5",
+    "seaq-v1": "npm:seaq@1.1.5",
     "typescript": "^5.9.3"
   }
 }

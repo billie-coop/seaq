@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@billie-coop/seaq": "workspace:*",
     "@leeoniya/ufuzzy": "^1.0.19",
     "@seaq/test-data": "workspace:*",
     "fuse.js": "^7.1.0",
@@ -19,7 +20,6 @@
     "minisearch": "^7.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "seaq": "workspace:*",
     "seaq-v1": "npm:seaq@1.1.5"
   },
   "devDependencies": {

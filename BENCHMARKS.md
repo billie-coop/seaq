@@ -1,6 +1,6 @@
 # Seaq Benchmarks
 
-All numbers in this document come from a single `yarn workspace seaq vitest bench` run. Nothing is estimated or rounded for narrative purposes.
+All numbers in this document come from a single `yarn workspace @billie-coop/seaq vitest bench` run. Nothing is estimated or rounded for narrative purposes.
 
 > **Snapshot date:** 2026-10-23
 > **Node.js:** v24.22.1 (Apple Silicon)
@@ -297,19 +297,19 @@ seaq is 19x faster than Fuse.js on multi-field nested search.
 
 ```bash
 # All benchmarks (takes 2-3 minutes)
-yarn workspace seaq vitest bench
+yarn workspace @billie-coop/seaq vitest bench
 
 # Individual benchmark files
-yarn workspace seaq vitest bench test/perf/seaq.bench.ts
-yarn workspace seaq vitest bench test/perf/realworld.bench.ts
-yarn workspace seaq vitest bench test/perf/nested-arrays.bench.ts
+yarn workspace @billie-coop/seaq vitest bench test/perf/seaq.bench.ts
+yarn workspace @billie-coop/seaq vitest bench test/perf/realworld.bench.ts
+yarn workspace @billie-coop/seaq vitest bench test/perf/nested-arrays.bench.ts
 
 # Individual library benchmarks
-yarn workspace seaq vitest bench test/perf/fuse.bench.ts
-yarn workspace seaq vitest bench test/perf/minisearch.bench.ts
-yarn workspace seaq vitest bench test/perf/lunr.bench.ts
-yarn workspace seaq vitest bench test/perf/ufuzzy.bench.ts
-yarn workspace seaq vitest bench test/perf/fuzzysort.bench.ts
+yarn workspace @billie-coop/seaq vitest bench test/perf/fuse.bench.ts
+yarn workspace @billie-coop/seaq vitest bench test/perf/minisearch.bench.ts
+yarn workspace @billie-coop/seaq vitest bench test/perf/lunr.bench.ts
+yarn workspace @billie-coop/seaq vitest bench test/perf/ufuzzy.bench.ts
+yarn workspace @billie-coop/seaq vitest bench test/perf/fuzzysort.bench.ts
 ```
 
 ---
@@ -320,5 +320,5 @@ yarn workspace seaq vitest bench test/perf/fuzzysort.bench.ts
 2. **Cold start** = index build (if any) + search, measured per iteration. seaq passes `cache: false`, since a benchmark loop that repeats the same array would otherwise index it on the second iteration.
 3. **Search only** = index pre-built outside the benchmark loop, measures pure search throughput. For seaq, that's the index it builds on a list's second search.
 4. **Single search** benchmarks for Fuse.js, MiniSearch, and Lunr include index construction inside each iteration (cold-start behavior). seaq runs with `cache: false` and uFuzzy has no index. fuzzysort caches prepared targets across calls, so its cold benchmarks call `fuzzysort.cleanup()` first.
-5. **Result counts differ.** Each library runs with its own defaults, so a faster time can mean less work: fuzzysort's 0.5 default threshold returns nothing for several benchmark queries. For result quality, `test/perf/quality.test.ts` checks what each library finds, and `yarn workspace seaq report quality acronyms` prints precision, recall and acronym tables.
+5. **Result counts differ.** Each library runs with its own defaults, so a faster time can mean less work: fuzzysort's 0.5 default threshold returns nothing for several benchmark queries. For result quality, `test/perf/quality.test.ts` checks what each library finds, and `yarn workspace @billie-coop/seaq report quality acronyms` prints precision, recall and acronym tables.
 6. Numbers will vary by machine. Relative comparisons are more meaningful than absolute ops/s.

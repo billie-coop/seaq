@@ -9,7 +9,7 @@
     "declarationMap": false,
     "emitDeclarationOnly": false,
     "paths": {
-      "seaq": ["../core/src/index.ts"]
+      "@billie-coop/seaq": ["../core/src/index.ts"]
     }
   },
   "include": ["src"],
