@@ -1,9 +1,4 @@
-/**
- * Quality & Feature comparison
- *
- * Tests accuracy, fuzziness, and special features across libraries.
- * Not a speed benchmark - focuses on "do they find the right thing?"
- */
+/** What each library finds, backing the README's feature comparison. */
 
 import uFuzzy from '@leeoniya/ufuzzy';
 import Fuse from 'fuse.js';
@@ -12,7 +7,6 @@ import MiniSearch from 'minisearch';
 import { describe, expect, test } from 'vitest';
 import { seaq } from '../../src/index';
 
-// Test data with various edge cases
 const people = [
   {
     id: 1,
@@ -118,59 +112,42 @@ describe('Feature: Exact Match', () => {
     const uf = new uFuzzy();
     const haystack = people.map((p) => p.name);
     const [idxs] = uf.search(haystack, 'John Smith');
-    expect(idxs?.[0]).toBe(0); // First person
+    expect(idxs?.[0]).toBe(0);
   });
 });
 
 describe('Feature: Fuzzy/Typo Tolerance', () => {
-  // Searching for "jonh" (typo) should find "John"
-
   test('seaq with fuzziness finds typo', () => {
     const results = seaq(people, 'jonh', { keys: ['name'], fuzziness: 0.5 });
     const names = results.map((r) => r.name);
     expect(names.some((n) => n.includes('John'))).toBe(true);
   });
 
-  test('seaq WITHOUT fuzziness uses character-by-character scoring', () => {
-    // seaq scores based on character positions, not fuzzy edit distance
-    // "jonh" matches "John" because j-o-n-h can all be found in sequence
-    const results = seaq(people, 'jonh', { keys: ['name'] }); // no fuzziness
-    const names = results.map((r) => r.name);
-    console.log('seaq no-fuzzy "jonh" results:', names);
-    // It finds John Smith because all chars j-o-n-h appear in order in "John Smith"
+  test('seaq finds the swap "jonh" even with fuzziness 0', () => {
+    const names = seaq(people, 'jonh', { keys: ['name'], fuzziness: 0 }).map((r) => r.name);
     expect(names.some((n) => n.includes('John'))).toBe(true);
   });
 
   test('fuse.js finds typo (default threshold)', () => {
-    const fuse = new Fuse(people, { keys: ['name'] }); // default threshold 0.6
+    const fuse = new Fuse(people, { keys: ['name'] });
     const results = fuse.search('jonh');
     const names = results.map((r) => r.item.name);
     expect(names.some((n) => n.includes('John'))).toBe(true);
   });
 
-  test('minisearch fuzzy requires higher threshold for typos', () => {
+  test('minisearch fuzzy matching is per word, by edit distance', () => {
     const ms = new MiniSearch({ fields: ['name'], storeFields: ['name'] });
     ms.addAll(people);
-    // MiniSearch fuzzy is edit-distance based, needs tuning
-    const results = ms.search('jonh', { fuzzy: 0.3 });
-    const names = results.map((r) => r.name);
-    console.log('MiniSearch fuzzy "jonh" results:', names);
-    // MiniSearch may not find typos well - it's more prefix/term focused
-    // This documents actual behavior rather than assuming it works
-    expect(true).toBe(true); // Document behavior, don't assert
+    // "jonh" is one edit from "jon", two from "john"
+    expect(ms.search('jonh', { fuzzy: 0.3 }).map((r) => r.name)).toEqual(['Jon Snow']);
   });
 
-  test('fuzzysort has no typo tolerance (in-order subsequence only)', () => {
-    // "jonh" isn't a subsequence of "John Smith" at a good score — fuzzysort
-    // only matches characters in order, so transpositions aren't found
-    const results = fuzzysort.go('jonh', people, { key: 'name' });
-    const names = results.map((r) => r.obj.name);
-    console.log('fuzzysort "jonh" results:', names);
-    expect(names).toEqual([]);
+  test('fuzzysort matches characters in order only, so not "jonh"', () => {
+    expect(fuzzysort.go('jonh', people, { key: 'name' })).toHaveLength(0);
   });
 
   test('ufuzzy in fuzzy mode finds typo', () => {
-    const uf = new uFuzzy({ intraMode: 1 }); // fuzzy mode
+    const uf = new uFuzzy({ intraMode: 1 });
     const haystack = people.map((p) => p.name);
     const [idxs] = uf.search(haystack, 'jonh');
     const foundNames = idxs?.map((i) => haystack[i]) ?? [];
@@ -179,7 +156,6 @@ describe('Feature: Fuzzy/Typo Tolerance', () => {
 });
 
 describe('Feature: Partial/Prefix Matching', () => {
-  // Searching for "nat" should find "Natasha" etc
   const names = ['Natasha', 'Nathan', 'Nathaniel', 'Bob', 'Nancy'];
 
   test('seaq finds partial matches', () => {
@@ -222,40 +198,28 @@ describe('Feature: Partial/Prefix Matching', () => {
 });
 
 describe('Feature: Acronym Matching', () => {
-  // "HiMi" should match "Hillsdale Michigan" better than "himalayas"
-
   test('seaq prioritizes acronym matches', () => {
     const results = seaq(acronymData, 'HiMi');
     expect(results[0]).toBe('Hillsdale Michigan');
   });
 
-  test('fuse.js acronym behavior', () => {
-    const fuse = new Fuse(acronymData);
-    const results = fuse.search('HiMi').map((r) => r.item);
-    // Fuse may or may not prioritize acronyms
-    expect(results.length).toBeGreaterThan(0);
-    console.log('Fuse.js HiMi results:', results.slice(0, 3));
+  test('fuse.js ranks a substring match above the acronym', () => {
+    const results = new Fuse(acronymData).search('HiMi').map((r) => r.item);
+    expect(results.slice(0, 2)).toEqual(['himalayas', 'Hillsdale Michigan']);
   });
 
   test('fuzzysort prioritizes acronym matches', () => {
     const results = fuzzysort.go('HiMi', acronymData).map((r) => r.target);
-    console.log('fuzzysort HiMi results:', results);
     expect(results[0]).toBe('Hillsdale Michigan');
   });
 
-  test('ufuzzy does NOT support acronym matching', () => {
-    const uf = new uFuzzy();
-    const [idxs] = uf.search(acronymData, 'HiMi');
-    const results = idxs?.map((i) => acronymData[i]) ?? [];
-    console.log('uFuzzy HiMi results:', results);
-    // uFuzzy doesn't do acronym matching - it needs consecutive characters
-    expect(results.length).toBe(0);
+  test('ufuzzy finds no acronym match', () => {
+    const [idxs] = new uFuzzy().search(acronymData, 'HiMi');
+    expect(idxs ?? []).toHaveLength(0);
   });
 });
 
 describe('Feature: Nested Object Access', () => {
-  // seaq can search nested properties like 'address.city'
-
   test('seaq searches nested properties', () => {
     const results = seaq(people, 'New York', { keys: ['address.city'], fuzziness: 0 });
     expect(results.length).toBe(2);
@@ -263,7 +227,6 @@ describe('Feature: Nested Object Access', () => {
   });
 
   test('seaq searches deeply nested arrays', () => {
-    // Search for email address inside array of email objects
     const results = seaq(nestedData, 'bigcorp', { keys: ['emails.address'], fuzziness: 0 });
     expect(results.length).toBe(1);
     expect(results[0]?.name).toBe('Charlie');
@@ -275,28 +238,19 @@ describe('Feature: Nested Object Access', () => {
     expect(results.length).toBe(2);
   });
 
-  test('fuse.js searches arrays (but matches too broadly)', () => {
-    const fuse = new Fuse(nestedData, { keys: ['emails.address'] });
-    const results = fuse.search('bigcorp');
-    console.log(
-      'Fuse array search results:',
-      results.map((r) => r.item.name),
-    );
-    // Fuse finds the result but may have false positives due to fuzzy matching
+  test('fuse.js searches array fields', () => {
+    const results = new Fuse(nestedData, { keys: ['emails.address'] }).search('bigcorp');
     expect(results.some((r) => r.item.name === 'Charlie')).toBe(true);
   });
 
-  // MiniSearch requires flat fields - nested access needs preprocessing
-  test('minisearch requires flat fields (no native nested support)', () => {
-    // You'd need to flatten data before indexing
-    const flattened = people.map((p) => ({
-      ...p,
-      city: p.address.city,
-    }));
-    const ms = new MiniSearch({ fields: ['city'], storeFields: ['name', 'city'] });
-    ms.addAll(flattened);
-    const results = ms.search('New York');
-    expect(results.length).toBe(2);
+  test('minisearch reads nested fields through extractField', () => {
+    const ms = new MiniSearch({
+      fields: ['city'],
+      storeFields: ['name'],
+      extractField: (doc, field) => (field === 'city' ? doc.address.city : doc[field]),
+    });
+    ms.addAll(people);
+    expect(ms.search('New York')).toHaveLength(2);
   });
 
   test('fuzzysort searches nested properties', () => {
@@ -304,7 +258,6 @@ describe('Feature: Nested Object Access', () => {
     expect(results.length).toBe(2);
   });
 
-  // fuzzysort key paths don't traverse arrays - use a getter instead
   test('fuzzysort needs a getter for array fields', () => {
     expect(fuzzysort.go('bigcorp', nestedData, { key: 'emails.address' }).length).toBe(0);
     const results = fuzzysort.go('bigcorp', nestedData, {
@@ -313,8 +266,7 @@ describe('Feature: Nested Object Access', () => {
     expect(results.map((r) => r.obj.name)).toEqual(['Charlie']);
   });
 
-  // uFuzzy only searches string arrays - no object support
-  test('ufuzzy requires pre-flattened strings (no object support)', () => {
+  test('ufuzzy searches strings, not objects', () => {
     const haystack = people.map((p) => p.address.city);
     const uf = new uFuzzy();
     const [idxs] = uf.search(haystack, 'New York');
@@ -323,27 +275,16 @@ describe('Feature: Nested Object Access', () => {
 });
 
 describe('Feature: Multi-word Queries', () => {
-  // How do libraries handle "john new york" across multiple fields?
-
   test('seaq handles multi-word across fields', () => {
     const results = seaq(people, 'john new', { keys: ['name', 'address.city'] });
-    // Should find people named John in New York
     expect(results.some((r) => r.name.includes('John') && r.address.city === 'New York')).toBe(
       true,
     );
   });
 
-  test('fuse.js handles multi-word queries', () => {
-    const fuse = new Fuse(people, {
-      keys: ['name', 'address.city'],
-      useExtendedSearch: false,
-    });
-    const results = fuse.search('john new');
-    console.log(
-      'Fuse multi-word results:',
-      results.slice(0, 3).map((r) => r.item.name),
-    );
-    expect(results.length).toBeGreaterThan(0);
+  test('fuse.js scores the whole query against each field', () => {
+    const results = new Fuse(people, { keys: ['name', 'address.city'] }).search('john new');
+    expect(results[0]?.item.name).toBe('John Smith');
   });
 
   test('fuzzysort handles multi-word across fields', () => {
@@ -353,29 +294,21 @@ describe('Feature: Multi-word Queries', () => {
     ).toBe(true);
   });
 
-  test('minisearch handles multi-word queries', () => {
+  test('minisearch matches each word in any field', () => {
     const flattened = people.map((p) => ({ ...p, city: p.address.city }));
     const ms = new MiniSearch({ fields: ['name', 'city'], storeFields: ['name', 'city'] });
     ms.addAll(flattened);
-    const results = ms.search('john new');
-    console.log(
-      'MiniSearch multi-word results:',
-      results.slice(0, 3).map((r) => r.name),
-    );
-    expect(results.length).toBeGreaterThan(0);
+    expect(ms.search('john new')[0]?.name).toBe('John Smith');
   });
 });
 
 describe('Quality: Ranking', () => {
-  // Best match should be ranked first
-
   test('seaq ranks exact match first', () => {
     const results = seaq(people, 'John Smith', { keys: ['name'] });
     expect(results[0]?.name).toBe('John Smith');
   });
 
   test('seaq ranks by relevance', () => {
-    // "John" should rank John Smith higher than Mike Johnson
     const results = seaq(people, 'John', { keys: ['name'] });
     const johnSmithIdx = results.findIndex((r) => r.name === 'John Smith');
     const mikeJohnsonIdx = results.findIndex((r) => r.name === 'Mike Johnson');
@@ -383,9 +316,7 @@ describe('Quality: Ranking', () => {
   });
 
   test('fuse.js ranks by score', () => {
-    const fuse = new Fuse(people, { keys: ['name'], includeScore: true });
-    const results = fuse.search('John');
-    // Lower score = better match in Fuse
+    const results = new Fuse(people, { keys: ['name'] }).search('John');
     expect(results[0]?.item.name).toBe('John Smith');
   });
 });
@@ -394,92 +325,5 @@ describe('Quality: Ranking (fuzzysort)', () => {
   test('fuzzysort ranks by relevance', () => {
     const results = fuzzysort.go('John', people, { key: 'name' });
     expect(results[0]?.obj.name).toBe('John Smith');
-  });
-});
-
-describe('Summary: Feature Support Matrix', () => {
-  test('print feature matrix', () => {
-    const features = {
-      'Exact match': {
-        seaq: '✓',
-        fuzzysort: '✓',
-        fuse: '✓',
-        minisearch: '✓',
-        ufuzzy: '✓',
-        lunr: '✓',
-      },
-      'Fuzzy/typo tolerance': {
-        seaq: '✓ (opt-in)',
-        fuzzysort: '✗ (subseq)',
-        fuse: '✓ (default)',
-        minisearch: '~ (limited)',
-        ufuzzy: '✓ (modes)',
-        lunr: '~ (stemming)',
-      },
-      'Partial/prefix match': {
-        seaq: '✓',
-        fuzzysort: '✓',
-        fuse: '✓',
-        minisearch: '✓ (opt-in)',
-        ufuzzy: '✓',
-        lunr: '✓ (wildcards)',
-      },
-      'Acronym bonus': {
-        seaq: '✓',
-        fuzzysort: '✓',
-        fuse: '~ (ranks low)',
-        minisearch: '✗',
-        ufuzzy: '✗',
-        lunr: '✗',
-      },
-      'Nested object access': {
-        seaq: '✓',
-        fuzzysort: '✓',
-        fuse: '✓',
-        minisearch: '✗ (flatten)',
-        ufuzzy: '✗ (strings)',
-        lunr: '✗ (flatten)',
-      },
-      'Array field traversal': {
-        seaq: '✓',
-        fuzzysort: '~ (getter)',
-        fuse: '~ (broad)',
-        minisearch: '✗',
-        ufuzzy: '✗',
-        lunr: '✗',
-      },
-      'Pre-built index': {
-        seaq: '✗ (none)',
-        fuzzysort: '✓ (snap)',
-        fuse: '✓',
-        minisearch: '✓',
-        ufuzzy: '✗ (none)',
-        lunr: '✓',
-      },
-      'Zero dependencies': {
-        seaq: '✓',
-        fuzzysort: '✓',
-        fuse: '✓',
-        minisearch: '✓',
-        ufuzzy: '✓',
-        lunr: '✓',
-      },
-    };
-
-    console.log('\n=== Feature Support Matrix ===\n');
-    console.log(
-      'Feature                  | seaq       | fuzzysort  | fuse.js    | minisearch | ufuzzy     | lunr',
-    );
-    console.log(
-      '-------------------------|------------|------------|------------|------------|------------|------------',
-    );
-    for (const [feature, support] of Object.entries(features)) {
-      console.log(
-        `${feature.padEnd(24)} | ${support.seaq.padEnd(10)} | ${support.fuzzysort.padEnd(10)} | ${support.fuse.padEnd(10)} | ${support.minisearch.padEnd(10)} | ${support.ufuzzy.padEnd(10)} | ${support.lunr}`,
-      );
-    }
-    console.log('');
-
-    expect(true).toBe(true); // Always pass - this is just for output
   });
 });

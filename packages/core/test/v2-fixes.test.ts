@@ -85,7 +85,6 @@ describe('fix: joined-mode includeMatches returns per-field matches', () => {
   test('cross-field query produces one match per matched field', () => {
     const results = seaq(contacts, 'john smith', {
       keys,
-      fieldMode: 'joined',
       includeMatches: true,
       fuzziness: 0,
     });
@@ -98,7 +97,6 @@ describe('fix: joined-mode includeMatches returns per-field matches', () => {
   test('indices are relative to each field value and slice back to the query', () => {
     const results = seaq(contacts, 'john smith', {
       keys,
-      fieldMode: 'joined',
       includeMatches: true,
       fuzziness: 0,
     });
@@ -112,7 +110,6 @@ describe('fix: joined-mode includeMatches returns per-field matches', () => {
   test('non-matching fields are omitted from matches', () => {
     const results = seaq(contacts, 'smith', {
       keys,
-      fieldMode: 'joined',
       includeMatches: true,
       fuzziness: 0,
     });
@@ -122,7 +119,6 @@ describe('fix: joined-mode includeMatches returns per-field matches', () => {
   test('each joined match carries the overall item score', () => {
     const results = seaq(contacts, 'john smith', {
       keys,
-      fieldMode: 'joined',
       includeMatches: true,
       fuzziness: 0,
     });
@@ -135,7 +131,6 @@ describe('fix: joined-mode includeMatches returns per-field matches', () => {
     const users = [{ name: 'Alice', address: { city: 'New York' } }];
     const results = seaq(users, 'york', {
       keys: ['name', 'address.city'],
-      fieldMode: 'joined',
       includeMatches: true,
       fuzziness: 0,
     });
@@ -150,7 +145,6 @@ describe('fix: joined-mode includeMatches returns per-field matches', () => {
     ];
     const results = seaq(people, 'work', {
       keys: ['emails.address'],
-      fieldMode: 'joined',
       includeMatches: true,
       fuzziness: 0,
     });
@@ -185,17 +179,6 @@ describe('unchanged behavior: deferred position collection (perf refactor guards
     const results = seaq([{ x: 'hello' }], 'hello', { includeMatches: true, fuzziness: 0 });
     expect(results[0].matches[0].value).toBe(JSON.stringify({ x: 'hello' }));
     expect(results[0].matches[0].indices.length).toBeGreaterThan(0);
-  });
-
-  test('separate-mode matches unchanged', () => {
-    const results = seaq([{ givenName: 'Nathan', familyName: 'Fern' }], 'nath', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'separate',
-      includeMatches: true,
-      fuzziness: 0,
-    });
-    expect(results[0].matches[0].key).toBe('givenName');
-    expect(results[0].matches[0].indices).toEqual([[0, 3]]);
   });
 });
 
@@ -242,18 +225,11 @@ describe('digit-bucketed charMask: numeric queries stay correct', () => {
 describe('cache option', () => {
   const keys = ['givenName', 'familyName'];
 
-  test('cached results are identical to uncached (joined mode)', () => {
+  test('cached results are identical to uncached', () => {
     const uncached = seaq(ManyContacts, 'nath', { keys });
     // run twice: first populates the cache, second reads it
     seaq(ManyContacts, 'nath', { keys, cache: true });
     const cached = seaq(ManyContacts, 'nath', { keys, cache: true });
-    expect(cached).toEqual(uncached);
-  });
-
-  test('cached results are identical to uncached (separate mode)', () => {
-    const uncached = seaq(ManyContacts, 'nath fe', { keys, fieldMode: 'separate' });
-    seaq(ManyContacts, 'nath fe', { keys, fieldMode: 'separate', cache: true });
-    const cached = seaq(ManyContacts, 'nath fe', { keys, fieldMode: 'separate', cache: true });
     expect(cached).toEqual(uncached);
   });
 

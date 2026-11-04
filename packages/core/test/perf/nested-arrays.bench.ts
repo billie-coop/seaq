@@ -9,10 +9,6 @@ import MiniSearch from 'minisearch';
 import { bench, describe } from 'vitest';
 import { seaq } from '../../src/index';
 
-// ============================================================================
-// Test Data: Deeply nested structure (like a real contacts/CRM app)
-// ============================================================================
-
 interface Contact {
   id: number;
   name: string;
@@ -33,7 +29,6 @@ interface Contact {
   };
 }
 
-// Generate test data
 function generateContacts(count: number): Contact[] {
   const firstNames = [
     'John',
@@ -155,9 +150,7 @@ function generateContacts(count: number): Contact[] {
 const contacts1K = generateContacts(1000);
 const contacts5K = generateContacts(5000);
 
-// ============================================================================
-// Flattened data for libraries that don't support nested access
-// ============================================================================
+// Flattened copies for MiniSearch, which is given flat fields here
 
 interface FlatContact {
   id: number;
@@ -216,10 +209,6 @@ const mini5K = new MiniSearch({
   storeFields: ['id', 'name'],
 });
 mini5K.addAll(flat5K);
-
-// ============================================================================
-// Benchmarks: Nested property search
-// ============================================================================
 
 describe('Nested object search: company.name', () => {
   describe('1K contacts', () => {
@@ -297,14 +286,11 @@ describe('Deep nested: addresses.city', () => {
   });
 });
 
-// ============================================================================
-// Cold start: Include flattening overhead for MiniSearch
-// ============================================================================
-
 describe('Cold start with nested data (includes data prep)', () => {
   describe('1K contacts', () => {
     bench('seaq (no prep needed)', () => {
-      seaq(contacts1K, 'Acme', { keys: ['company.name', 'emails.address'] });
+      // cache: false — cold; by default a repeated array gets indexed
+      seaq(contacts1K, 'Acme', { keys: ['company.name', 'emails.address'], cache: false });
     });
 
     bench('fuse.js (index build)', () => {
@@ -322,7 +308,7 @@ describe('Cold start with nested data (includes data prep)', () => {
 
   describe('5K contacts', () => {
     bench('seaq (no prep needed)', () => {
-      seaq(contacts5K, 'Acme', { keys: ['company.name', 'emails.address'] });
+      seaq(contacts5K, 'Acme', { keys: ['company.name', 'emails.address'], cache: false });
     });
 
     bench('fuse.js (index build)', () => {
@@ -339,13 +325,13 @@ describe('Cold start with nested data (includes data prep)', () => {
   });
 });
 
-// ============================================================================
-// Multi-field nested search
-// ============================================================================
-
 describe('Multi-field nested search', () => {
   bench('seaq: search name + company + city', () => {
-    seaq(contacts1K, 'John Acme', { keys: ['name', 'company.name', 'addresses.city'] });
+    // cache: false — cold, like the Fuse.js index built inside each iteration
+    seaq(contacts1K, 'John Acme', {
+      keys: ['name', 'company.name', 'addresses.city'],
+      cache: false,
+    });
   });
 
   bench('fuse.js: search name + company + city', () => {

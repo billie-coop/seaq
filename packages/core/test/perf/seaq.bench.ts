@@ -1,221 +1,142 @@
 import { bench, describe } from 'vitest';
 // @ts-expect-error - direct import from node_modules to avoid workspace resolution
 import { seaq as seaqV1 } from '../../../../node_modules/seaq/dist/seaq.esm.js';
-import { seaq } from '../../src/index';
+import { type SeaqOptions, seaq } from '../../src/index';
 import { CONSECUTIVE_COUNT, data } from './common';
 
 const { Books, ManyContacts, Cities } = data;
 
-// Simple string array for no-keys testing
+// Engine benchmarks scan every call (cache: false), so they measure scoring,
+// not the list index — the default index is measured separately below
+function scan<T>(list: T[], query: string, options?: SeaqOptions<T>) {
+  return seaq(list, query, { ...options, cache: false });
+}
+
+const contactKeys = ['givenName', 'familyName'];
+const bookKeys = ['title', 'author.firstName'];
 const stringArray = ManyContacts.map((c) => `${c.givenName} ${c.familyName}`);
 
 describe('seaq v1 vs v2 - 10K contacts', () => {
   bench('v1 (published)', () => {
-    seaqV1(ManyContacts, 'nath fe', ['givenName', 'familyName']);
+    seaqV1(ManyContacts, 'nath fe', contactKeys);
   });
 
-  bench('v2 (joined)', () => {
-    seaq(ManyContacts, 'nath fe', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'joined',
-      fuzziness: 0,
-    });
-  });
-
-  bench('v2 (separate)', () => {
-    seaq(ManyContacts, 'nath fe', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'separate',
-      fuzziness: 0,
-    });
+  bench('v2', () => {
+    scan(ManyContacts, 'nath fe', { keys: contactKeys, fuzziness: 0 });
   });
 });
 
-describe('seaq - single search (joined mode)', () => {
+describe('seaq - single search', () => {
   bench('23-books', () => {
-    seaq(Books, 'hi', { keys: ['title', 'author.firstName'], fieldMode: 'joined', fuzziness: 0 });
+    scan(Books, 'hi', { keys: bookKeys, fuzziness: 0 });
   });
 
   bench('10,000-contacts', () => {
-    seaq(ManyContacts, 'nath fe', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'joined',
-      fuzziness: 0,
-    });
-  });
-});
-
-describe('seaq - single search (separate mode)', () => {
-  bench('23-books', () => {
-    seaq(Books, 'hi', { keys: ['title', 'author.firstName'], fieldMode: 'separate', fuzziness: 0 });
-  });
-
-  bench('10,000-contacts', () => {
-    seaq(ManyContacts, 'nath fe', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'separate',
-      fuzziness: 0,
-    });
+    scan(ManyContacts, 'nath fe', { keys: contactKeys, fuzziness: 0 });
   });
 });
 
 describe('seaq - single search (no keys - string array)', () => {
   bench('10,000-strings', () => {
-    seaq(stringArray, 'nath fe', { fuzziness: 0 });
+    scan(stringArray, 'nath fe', { fuzziness: 0 });
   });
 });
 
 describe('seaq - single search (no keys - object array)', () => {
   bench('10,000-contacts', () => {
-    seaq(ManyContacts, 'nath fe', { fuzziness: 0 });
+    scan(ManyContacts, 'nath fe', { fuzziness: 0 });
   });
 });
 
-describe(`seaq - ${CONSECUTIVE_COUNT} consecutive searches (joined mode)`, () => {
+describe(`seaq - ${CONSECUTIVE_COUNT} consecutive searches`, () => {
   bench('23-books', () => {
     for (let index = 0; index < CONSECUTIVE_COUNT; index++) {
-      seaq(Books, 'hi', { keys: ['title', 'author.firstName'], fieldMode: 'joined', fuzziness: 0 });
+      scan(Books, 'hi', { keys: bookKeys, fuzziness: 0 });
     }
   });
 
   bench('10,000-contacts', () => {
     for (let index = 0; index < CONSECUTIVE_COUNT; index++) {
-      seaq(ManyContacts, 'nath fe', {
-        keys: ['givenName', 'familyName'],
-        fieldMode: 'joined',
-        fuzziness: 0,
-      });
+      scan(ManyContacts, 'nath fe', { keys: contactKeys, fuzziness: 0 });
     }
   });
 });
 
-describe('seaq - includeMatches overhead (joined)', () => {
+describe('seaq - includeMatches overhead', () => {
   bench('10K contacts - without includeMatches', () => {
-    seaq(ManyContacts, 'nath fe', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'joined',
-      fuzziness: 0,
-    });
+    scan(ManyContacts, 'nath fe', { keys: contactKeys, fuzziness: 0 });
   });
 
   bench('10K contacts - with includeMatches', () => {
-    seaq(ManyContacts, 'nath fe', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'joined',
-      fuzziness: 0,
-      includeMatches: true,
-    });
+    scan(ManyContacts, 'nath fe', { keys: contactKeys, fuzziness: 0, includeMatches: true });
   });
 });
 
-describe('seaq - includeMatches overhead (separate)', () => {
-  bench('10K contacts - without includeMatches', () => {
-    seaq(ManyContacts, 'nath fe', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'separate',
-      fuzziness: 0,
-    });
+describe('seaq - multi-word queries', () => {
+  bench('10K contacts - "nath fe" (fuzzy 0.2)', () => {
+    scan(ManyContacts, 'nath fe', { keys: contactKeys, fuzziness: 0.2 });
   });
 
-  bench('10K contacts - with includeMatches', () => {
-    seaq(ManyContacts, 'nath fe', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'separate',
-      fuzziness: 0,
-      includeMatches: true,
-    });
-  });
-});
-
-describe('seaq - multi-word separate mode (regression target)', () => {
-  bench('10K contacts - "nath fe" (separate, fuzzy 0.2)', () => {
-    seaq(ManyContacts, 'nath fe', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'separate',
-      fuzziness: 0.2,
-    });
+  bench('10K contacts - "natasha okeefe" (fuzzy 0.2)', () => {
+    scan(ManyContacts, 'natasha okeefe', { keys: contactKeys, fuzziness: 0.2 });
   });
 
-  bench('10K contacts - "natasha okeefe" (separate, fuzzy 0.2)', () => {
-    seaq(ManyContacts, 'natasha okeefe', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'separate',
-      fuzziness: 0.2,
-    });
+  bench('10K contacts - "nath fe" (strict)', () => {
+    scan(ManyContacts, 'nath fe', { keys: contactKeys, fuzziness: 0 });
   });
 
-  bench('10K contacts - "nath fe" (separate, strict)', () => {
-    seaq(ManyContacts, 'nath fe', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'separate',
-      fuzziness: 0,
-    });
-  });
-
-  bench('10K contacts - single word baseline "nath" (separate, fuzzy 0.2)', () => {
-    seaq(ManyContacts, 'nath', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'separate',
-      fuzziness: 0.2,
-    });
+  bench('10K contacts - single word baseline "nath" (fuzzy 0.2)', () => {
+    scan(ManyContacts, 'nath', { keys: contactKeys, fuzziness: 0.2 });
   });
 });
 
 describe('seaq - top 10 results (slice vs limit)', () => {
-  bench('10,000-contacts - slice(0,10) [current way]', () => {
-    seaq(ManyContacts, 'na', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'joined',
+  bench('10,000-contacts - limit: Infinity, then slice(0,10)', () => {
+    scan(ManyContacts, 'na', {
+      keys: contactKeys,
       fuzziness: 0,
+      limit: Number.POSITIVE_INFINITY,
     }).slice(0, 10);
   });
 
-  bench('10,000-contacts - limit: 10 [optimized]', () => {
-    seaq(ManyContacts, 'na', {
-      keys: ['givenName', 'familyName'],
-      fieldMode: 'joined',
-      fuzziness: 0,
-      limit: 10,
-    });
+  bench('10,000-contacts - limit: 10', () => {
+    scan(ManyContacts, 'na', { keys: contactKeys, fuzziness: 0, limit: 10 });
   });
 });
 
 describe('seaq v1 vs v2 - 20K cities (2 keys: name, state)', () => {
-  const cityKeys = ['name', 'state'] as const;
+  const cityKeys = ['name', 'state'];
+  for (const q of ['san', 'new york', 'los ang']) {
+    bench(`v1 (published) - "${q}"`, () => {
+      seaqV1(Cities, q, cityKeys);
+    });
 
-  bench('v1 (published) - "san"', () => {
-    seaqV1(Cities, 'san', cityKeys);
+    bench(`v2 - "${q}"`, () => {
+      scan(Cities, q, { keys: cityKeys, fuzziness: 0 });
+    });
+  }
+});
+
+describe('seaq - default options, index reused (typeahead on a static list)', () => {
+  // Warm up: the second search of an array builds its index
+  seaq(ManyContacts, 'x', { keys: contactKeys });
+  seaq(ManyContacts, 'x', { keys: contactKeys });
+  seaq(Cities, 'x', { keys: ['name', 'state'] });
+  seaq(Cities, 'x', { keys: ['name', 'state'] });
+
+  bench('10K contacts - "nath fe" (default fuzziness 0.2)', () => {
+    seaq(ManyContacts, 'nath fe', { keys: contactKeys });
   });
 
-  bench('v2 joined - "san"', () => {
-    seaq(Cities, 'san', { keys: [...cityKeys], fieldMode: 'joined', fuzziness: 0 });
+  bench('10K contacts - "nath fe" (fuzziness 0)', () => {
+    seaq(ManyContacts, 'nath fe', { keys: contactKeys, fuzziness: 0 });
   });
 
-  bench('v2 separate - "san"', () => {
-    seaq(Cities, 'san', { keys: [...cityKeys], fieldMode: 'separate', fuzziness: 0 });
+  bench('20K cities - "san" (default fuzziness 0.2)', () => {
+    seaq(Cities, 'san', { keys: ['name', 'state'] });
   });
 
-  bench('v1 (published) - "new york"', () => {
-    seaqV1(Cities, 'new york', cityKeys);
-  });
-
-  bench('v2 joined - "new york"', () => {
-    seaq(Cities, 'new york', { keys: [...cityKeys], fieldMode: 'joined', fuzziness: 0 });
-  });
-
-  bench('v2 separate - "new york"', () => {
-    seaq(Cities, 'new york', { keys: [...cityKeys], fieldMode: 'separate', fuzziness: 0 });
-  });
-
-  bench('v1 (published) - "los ang"', () => {
-    seaqV1(Cities, 'los ang', cityKeys);
-  });
-
-  bench('v2 joined - "los ang"', () => {
-    seaq(Cities, 'los ang', { keys: [...cityKeys], fieldMode: 'joined', fuzziness: 0 });
-  });
-
-  bench('v2 separate - "los ang"', () => {
-    seaq(Cities, 'los ang', { keys: [...cityKeys], fieldMode: 'separate', fuzziness: 0 });
+  bench('20K cities - "san" (fuzziness 0)', () => {
+    seaq(Cities, 'san', { keys: ['name', 'state'], fuzziness: 0 });
   });
 });
