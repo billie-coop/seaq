@@ -1,6 +1,6 @@
 import { bench, describe } from 'vitest';
 // @ts-expect-error - direct import from node_modules to avoid workspace resolution
-import { seaq as seaqV1 } from '../../../../node_modules/seaq/dist/seaq.esm.js';
+import { seaq as seaqV1 } from '../../../../node_modules/seaq-v1/dist/seaq.esm.js';
 import { type SeaqOptions, seaq } from '../../src/index';
 import { CONSECUTIVE_COUNT, data } from './common';
 

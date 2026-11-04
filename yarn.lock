@@ -216,6 +216,22 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@billie-coop/seaq@workspace:*, @billie-coop/seaq@workspace:packages/core":
+  version: 0.0.0-use.local
+  resolution: "@billie-coop/seaq@workspace:packages/core"
+  dependencies:
+    "@leeoniya/ufuzzy": "npm:^1.0.19"
+    "@seaq/test-data": "workspace:*"
+    "@types/lunr": "npm:^2.3.7"
+    fuse.js: "npm:^7.1.0"
+    fuzzysort: "npm:^4"
+    lunr: "npm:^2.3.9"
+    minisearch: "npm:^7.2.0"
+    tsup: "npm:^8.5.1"
+    vitest: "npm:^4.0.16"
+  languageName: unknown
+  linkType: soft
+
 "@biomejs/biome@npm:^2.3.10":
   version: 2.3.10
   resolution: "@biomejs/biome@npm:2.3.10"
@@ -1148,6 +1164,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@seaq/docs@workspace:packages/docs"
   dependencies:
+    "@billie-coop/seaq": "workspace:*"
     "@leeoniya/ufuzzy": "npm:^1.0.19"
     "@seaq/test-data": "workspace:*"
     "@tailwindcss/typography": "npm:^0.5.20"
@@ -1163,7 +1180,6 @@ __metadata:
     minisearch: "npm:^7.2.0"
     react: "npm:^19.0.0"
     react-dom: "npm:^19.0.0"
-    seaq: "workspace:*"
     seaq-v1: "npm:seaq@1.1.5"
     tailwindcss: "npm:^4.0.0"
     typescript: "npm:^5.8.0"
@@ -3057,33 +3073,17 @@ __metadata:
   dependencies:
     "@biomejs/biome": "npm:^2.3.10"
     "@vitest/coverage-v8": "npm:^4.0.18"
-    seaq: "npm:1.1.5"
+    seaq-v1: "npm:seaq@1.1.5"
     typescript: "npm:^5.9.3"
   languageName: unknown
   linkType: soft
 
-"seaq-v1@npm:seaq@1.1.5, seaq@npm:1.1.5":
+"seaq-v1@npm:seaq@1.1.5":
   version: 1.1.5
   resolution: "seaq@npm:1.1.5"
   checksum: 10c0/fbe12ac95ba81ff40089c7bc4717a1982ce9585c833dbde7857fb78589182746e7056e0d7f37b2afcbdd4d07707f6a7810a4953b2e6bc36db03df5cd2c8c6a80
   languageName: node
   linkType: hard
-
-"seaq@workspace:*, seaq@workspace:packages/core":
-  version: 0.0.0-use.local
-  resolution: "seaq@workspace:packages/core"
-  dependencies:
-    "@leeoniya/ufuzzy": "npm:^1.0.19"
-    "@seaq/test-data": "workspace:*"
-    "@types/lunr": "npm:^2.3.7"
-    fuse.js: "npm:^7.1.0"
-    fuzzysort: "npm:^4"
-    lunr: "npm:^2.3.9"
-    minisearch: "npm:^7.2.0"
-    tsup: "npm:^8.5.1"
-    vitest: "npm:^4.0.16"
-  languageName: unknown
-  linkType: soft
 
 "semver@npm:^6.3.1":
   version: 6.3.1

@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup toolchain with Proto
         uses: moonrepo/setup-toolchain@v0
@@ -27,7 +27,7 @@ jobs:
           YARN_ENABLE_GLOBAL_CACHE: 'false'
 
       - name: Restore yarn cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ steps.yarn-config.outputs.CACHE_FOLDER }}
           key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
@@ -35,7 +35,7 @@ jobs:
             ${{ runner.os }}-yarn-
 
       - name: Restore node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: '**/node_modules'
           key: ${{ runner.os }}-modules-${{ hashFiles('yarn.lock') }}

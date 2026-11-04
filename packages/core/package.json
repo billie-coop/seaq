@@ -1,5 +1,5 @@
 {
-  "name": "seaq",
+  "name": "@billie-coop/seaq",
   "version": "2.0.0",
   "description": "Zero-dependency fuzzy search — one function, no setup, no index to manage",
   "license": "MIT",
@@ -37,7 +37,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "sideEffects": false,
   "scripts": {

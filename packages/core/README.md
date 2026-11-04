@@ -3,7 +3,7 @@
 Zero-dependency fuzzy search. One function, no setup, no index to manage.
 
 ```typescript
-import { seaq } from 'seaq';
+import { seaq } from '@billie-coop/seaq';
 
 const results = seaq(contacts, 'john', { keys: ['name', 'email'] });
 ```
@@ -15,8 +15,10 @@ Works the same whether your list has 20 items or 20,000 -- no refactoring needed
 ## Install
 
 ```bash
-npm install seaq
+npm install @billie-coop/seaq
 ```
+
+seaq 2.0 is published as `@billie-coop/seaq`. The unscoped `seaq` package (1.x) is deprecated. To upgrade from 1.x, see the [CHANGELOG](https://github.com/billie-coop/seaq/blob/main/packages/core/CHANGELOG.md).
 
 ## Usage
 

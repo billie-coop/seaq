@@ -1,6 +1,6 @@
 /**
  * The timing tables in WHY-SEAQ.md: medians of 80 runs after 20 warmup runs.
- * Run with `yarn workspace seaq report test/reports/why-seaq.test.ts`.
+ * Run with `yarn workspace @billie-coop/seaq report test/reports/why-seaq.test.ts`.
  */
 import uFuzzy from '@leeoniya/ufuzzy';
 import type { Contact } from '@seaq/test-data';
@@ -10,7 +10,7 @@ import lunr from 'lunr';
 import MiniSearch from 'minisearch';
 import { describe, expect, test } from 'vitest';
 // @ts-expect-error - direct import from node_modules to avoid workspace resolution
-import { seaq as seaqV1 } from '../../../../node_modules/seaq/dist/seaq.esm.js';
+import { seaq as seaqV1 } from '../../../../node_modules/seaq-v1/dist/seaq.esm.js';
 import { seaq } from '../../src/index';
 import { data } from '../perf/common';
 

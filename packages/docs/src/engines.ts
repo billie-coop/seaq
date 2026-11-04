@@ -1,9 +1,9 @@
+import { seaq } from '@billie-coop/seaq';
 import uFuzzy from '@leeoniya/ufuzzy';
 import Fuse from 'fuse.js';
 import fuzzysort, { type Snapshot, type SnapshotKeys } from 'fuzzysort';
 import lunr from 'lunr';
 import MiniSearch from 'minisearch';
-import { seaq } from 'seaq';
 import { seaq as seaqV1 } from 'seaq-v1';
 import type {
   FuseConfig,

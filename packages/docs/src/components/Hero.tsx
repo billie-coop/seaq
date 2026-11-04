@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const QUICKSTART = `import { seaq } from 'seaq';
+const QUICKSTART = `import { seaq } from '@billie-coop/seaq';
 
 const contacts = [
   { name: 'Helen Green', email: 'helen@example.com' },
@@ -14,7 +14,7 @@ export function Hero() {
   const [copied, setCopied] = useState(false);
 
   function copyInstall() {
-    navigator.clipboard.writeText('npm install seaq').then(() => {
+    navigator.clipboard.writeText('npm install @billie-coop/seaq').then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -35,7 +35,7 @@ export function Hero() {
             title="Copy to clipboard"
             className="group flex items-center gap-2 rounded-md bg-gray-900 px-4 py-2 font-mono text-sm text-gray-100 shadow-sm hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
           >
-            <span className="text-gray-500">$</span> npm install seaq
+            <span className="text-gray-500">$</span> npm install @billie-coop/seaq
             <span className="text-xs text-gray-400 group-hover:text-gray-200">
               {copied ? '✓ copied' : 'copy'}
             </span>
