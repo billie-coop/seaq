@@ -143,7 +143,7 @@ export function Reference() {
                       entry.level === 3 ? 'pl-7' : 'pl-4'
                     } ${
                       activeId === entry.id
-                        ? 'border-teal-700 font-medium text-teal-700'
+                        ? 'border-teal-300 font-medium text-teal-300'
                         : 'border-transparent text-gray-500 hover:border-gray-400 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'
                     }`}
                   >
@@ -156,7 +156,7 @@ export function Reference() {
         </nav>
         <article
           ref={articleRef}
-          className="reference-prose prose prose-slate min-w-0 max-w-[52rem] flex-1 prose-headings:scroll-mt-24 prose-pre:border prose-pre:border-gray-700/60 prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:shadow-sm prose-code:before:content-none prose-code:after:content-none"
+          className="reference-prose prose prose-slate dark:prose-invert min-w-0 max-w-[52rem] flex-1 prose-headings:scroll-mt-24 prose-pre:border prose-pre:border-gray-700/60 prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:shadow-sm prose-code:before:content-none prose-code:after:content-none"
           // biome-ignore lint/security/noDangerouslySetInnerHtml: rendering our own README from this repo, not user input
           dangerouslySetInnerHTML={{ __html: referenceHtml }}
         />
