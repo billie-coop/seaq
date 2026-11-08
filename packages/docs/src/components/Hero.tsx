@@ -21,10 +21,11 @@ export function Hero() {
   }
 
   return (
-    <section className="mb-10 grid gap-6 lg:grid-cols-2 lg:items-center">
+    <section className="site-container site-hero">
       <div>
-        <h1 className="text-4xl font-bold tracking-tight text-gray-900 dark:text-white">seaq</h1>
-        <p className="mt-3 text-lg text-gray-600 dark:text-gray-300">
+        <p className="site-eyebrow">Open source by Billie co-op</p>
+        <h1>seaq</h1>
+        <p className="hero-description">
           Zero-dependency fuzzy search. One function, no setup, no index to manage — works the same
           on 20 items or 20,000.
         </p>
@@ -33,21 +34,18 @@ export function Hero() {
             type="button"
             onClick={copyInstall}
             title="Copy to clipboard"
-            className="group flex items-center gap-2 rounded-md bg-gray-900 px-4 py-2 font-mono text-sm text-gray-100 shadow-sm hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
+            className="install-button group"
           >
-            <span className="text-gray-500">$</span> npm install @billie-coop/seaq
-            <span className="text-xs text-gray-400 group-hover:text-gray-200">
+            <span aria-hidden="true">$</span> npm install @billie-coop/seaq
+            <span className="install-copy" aria-live="polite">
               {copied ? '✓ copied' : 'copy'}
             </span>
           </button>
-          <a
-            href="#reference"
-            className="rounded-md px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-gray-800"
-          >
+          <a href="#reference" className="docs-link">
             Read the docs →
           </a>
         </div>
-        <p className="mt-5 text-sm text-gray-500 dark:text-gray-400">
+        <p className="hero-note">
           Everything below is live: pick a dataset — or paste your own JSON — and compare seaq
           against fuzzysort, Fuse.js, MiniSearch, uFuzzy, and Lunr as you type.
         </p>
