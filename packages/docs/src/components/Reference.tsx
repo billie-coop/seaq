@@ -143,7 +143,7 @@ export function Reference() {
                       entry.level === 3 ? 'pl-7' : 'pl-4'
                     } ${
                       activeId === entry.id
-                        ? 'border-teal-300 font-medium text-teal-300'
+                        ? 'toc-active font-medium'
                         : 'border-transparent text-gray-500 hover:border-gray-400 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'
                     }`}
                   >

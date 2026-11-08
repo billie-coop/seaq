@@ -2,16 +2,46 @@
 @plugin "@tailwindcss/typography";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Keep the existing playground utilities in the shared neutral family. */
+@theme {
+  --color-gray-50: #fafbfc;
+  --color-gray-100: #f0f2f5;
+  --color-gray-200: #d4d9e1;
+  --color-gray-300: #b7bfcb;
+  --color-gray-400: #a6adb8;
+  --color-gray-500: #778190;
+  --color-gray-600: #596273;
+  --color-gray-700: #3b4350;
+  --color-gray-800: #252b34;
+  --color-gray-900: #191d24;
+}
+
 /* Shared Billie co-op shell. The comparison playground keeps its own layout. */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #f1f5f9;
-  background: #0f172a;
-  --site-muted: #94a3b8;
-  --site-border: #334155;
-  --site-accent: #5eead4;
-  --site-soft: #1e293b;
+  --site-bg: #fafbfc;
+  --site-text: #20252d;
+  --site-muted: #596273;
+  --site-border: #d4d9e1;
+  --site-accent: #1d4ed8;
+  --site-soft: #f0f2f5;
+  --site-mark-bg: #fde047;
+  --site-mark-text: #20252d;
+  color: var(--site-text);
+  background: var(--site-bg);
+}
+
+:root.dark {
+  color-scheme: dark;
+  --site-bg: #191d24;
+  --site-text: #f1f3f5;
+  --site-muted: #a6adb8;
+  --site-border: #3b4350;
+  --site-accent: #93c5fd;
+  --site-soft: #252b34;
+  --site-mark-bg: #854d0e;
+  --site-mark-text: #fef9c3;
 }
 
 .site-shell {
@@ -36,7 +66,7 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  background: #0f172a;
+  background: var(--site-bg);
   border-bottom: 1px solid var(--site-border);
 }
 
@@ -78,6 +108,21 @@
   border-radius: 6px;
 }
 
+.theme-switch {
+  padding: 6px 10px;
+  border: 1px solid var(--site-border);
+  border-radius: 6px;
+  background: var(--site-soft);
+  color: var(--site-text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.theme-switch:hover {
+  border-color: var(--site-accent);
+}
+
 .site-nav a[aria-current="page"] {
   background: var(--site-soft);
 }
@@ -101,7 +146,7 @@ select:focus-visible {
   top: -100px;
   z-index: 30;
   padding: 12px 16px;
-  background: #0f172a;
+  background: var(--site-bg);
   border: 1px solid var(--site-accent);
   border-radius: 6px;
 }
@@ -218,6 +263,22 @@ select:focus-visible {
   text-underline-offset: 3px;
 }
 
+.toc-active {
+  border-color: var(--site-accent);
+  color: var(--site-accent);
+}
+
+.reference-prose {
+  --tw-prose-body: var(--site-text);
+  --tw-prose-headings: var(--site-text);
+  --tw-prose-bold: var(--site-text);
+  --tw-prose-code: var(--site-text);
+  --tw-prose-counters: var(--site-muted);
+  --tw-prose-bullets: var(--site-muted);
+  --tw-prose-th-borders: var(--site-border);
+  --tw-prose-td-borders: var(--site-border);
+}
+
 .site-footer {
   margin-top: 64px;
   border-top: 1px solid var(--site-border);
@@ -265,7 +326,7 @@ select:focus-visible {
     border: 1px solid var(--site-border);
     border-radius: 6px;
     background: var(--site-soft);
-    color: #f1f5f9;
+    color: var(--site-text);
     font: inherit;
   }
 }
@@ -309,13 +370,25 @@ select:focus-visible {
   }
 }
 
-@media (max-width: 360px) {
-  .site-nav {
-    font-size: 13px;
+@media (max-width: 420px) {
+  .header-inner {
+    flex-wrap: wrap;
+    padding-block: 12px;
   }
 
-  .site-nav a {
-    padding-inline: 6px;
+  .site-brand {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .site-nav {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .reference-prose :is(h2, h3) {
+    scroll-margin-top: 136px;
   }
 }
 
@@ -345,8 +418,8 @@ select:focus-visible {
 }
 
 mark {
-  background: #854d0e;
-  color: #fef9c3;
+  background: var(--site-mark-bg);
+  color: var(--site-mark-text);
   padding: 0 1px;
   border-radius: 1px;
 }

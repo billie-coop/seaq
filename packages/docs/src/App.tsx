@@ -156,6 +156,37 @@ function useHashView(): View {
   return hash.startsWith('#reference') ? 'reference' : 'playground';
 }
 
+function ThemeSwitch() {
+  const [theme, setTheme] = useState(() =>
+    document.documentElement.dataset.theme === 'light' ? 'light' : 'dark',
+  );
+  const nextTheme = theme === 'dark' ? 'light' : 'dark';
+
+  function toggleTheme() {
+    document.documentElement.dataset.theme = nextTheme;
+    document.documentElement.classList.toggle('dark', nextTheme === 'dark');
+    document.documentElement.style.colorScheme = nextTheme;
+    setTheme(nextTheme);
+    try {
+      localStorage.setItem('billie-coop-theme', nextTheme);
+    } catch {
+      // The switch still works when browser storage is unavailable.
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className="theme-switch"
+      onClick={toggleTheme}
+      aria-label={`Switch to ${nextTheme} mode`}
+      title={`Switch to ${nextTheme} mode`}
+    >
+      {nextTheme === 'light' ? 'Light' : 'Dark'}
+    </button>
+  );
+}
+
 function NavBar({ view }: { view: View }) {
   return (
     <header className="site-header">
@@ -172,6 +203,7 @@ function NavBar({ view }: { view: View }) {
             Docs
           </a>
           <a href="https://github.com/billie-coop/seaq">GitHub ↗</a>
+          <ThemeSwitch />
         </nav>
       </div>
     </header>
