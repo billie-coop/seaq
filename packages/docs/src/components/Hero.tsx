@@ -8,7 +8,7 @@ const contacts = [
 ];
 
 seaq(contacts, 'helgre', { keys: ['name', 'email'] });
-// => [{ name: 'Helen Green', ... }]  — no setup, no index to manage`;
+// => [{ name: 'Helen Green', ... }]`;
 
 export function Hero() {
   const [copied, setCopied] = useState(false);
@@ -23,11 +23,9 @@ export function Hero() {
   return (
     <section className="site-container site-hero">
       <div>
-        <p className="site-eyebrow">Open source by Billie co-op</p>
         <h1>seaq</h1>
         <p className="hero-description">
-          Zero-dependency fuzzy search. One function, no setup, no index to manage — works the same
-          on 20 items or 20,000.
+          Zero-dependency fuzzy search for JavaScript and TypeScript.
         </p>
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button
@@ -42,13 +40,9 @@ export function Hero() {
             </span>
           </button>
           <a href="#reference" className="docs-link">
-            Read the docs →
+            Docs →
           </a>
         </div>
-        <p className="hero-note">
-          Everything below is live: pick a dataset — or paste your own JSON — and compare seaq
-          against fuzzysort, Fuse.js, MiniSearch, uFuzzy, and Lunr as you type.
-        </p>
       </div>
       <pre className="overflow-x-auto rounded-lg border border-gray-200 bg-gray-900 p-4 text-xs leading-relaxed text-gray-100 shadow-sm dark:border-gray-700">
         <code>{QUICKSTART}</code>

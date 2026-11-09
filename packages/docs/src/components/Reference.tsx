@@ -105,9 +105,7 @@ export function Reference() {
   return (
     <div className="site-container docs-page">
       <div className="docs-intro">
-        <p className="site-eyebrow">seaq</p>
-        <h1>Documentation</h1>
-        <p>Install, search your data, and explore the API.</p>
+        <h1>Docs</h1>
       </div>
       <label className="mobile-toc">
         <span>On this page</span>

@@ -159,20 +159,17 @@ select:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
-  gap: 40px;
-  padding-block: 64px 48px;
+  gap: 32px;
+  padding-block: 32px 28px;
 }
 
-.site-eyebrow {
-  margin-bottom: 12px;
-  color: var(--site-accent);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+.site-hero h1 {
+  font-size: 36px;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.035em;
 }
 
-.site-hero h1,
 .docs-intro h1 {
   font-size: 48px;
   line-height: 1.1;
@@ -183,8 +180,8 @@ select:focus-visible {
 .hero-description {
   margin-top: 20px;
   color: var(--site-muted);
-  font-size: 18px;
-  line-height: 1.7;
+  font-size: 16px;
+  line-height: 1.6;
 }
 
 .install-button {
@@ -220,13 +217,6 @@ select:focus-visible {
   text-decoration: underline;
 }
 
-.hero-note {
-  margin-top: 24px;
-  color: var(--site-muted);
-  font-size: 14px;
-  line-height: 1.65;
-}
-
 .playground-container {
   max-width: 120rem;
   margin-inline: auto;
@@ -241,12 +231,6 @@ select:focus-visible {
   margin-bottom: 32px;
   padding-bottom: 32px;
   border-bottom: 1px solid var(--site-border);
-}
-
-.docs-intro > p:last-child {
-  margin-top: 16px;
-  font-size: 18px;
-  color: var(--site-muted);
 }
 
 .reference-layout {
@@ -308,7 +292,7 @@ select:focus-visible {
   .site-hero {
     grid-template-columns: minmax(0, 1fr);
     gap: 28px;
-    padding-top: 48px;
+    padding-top: 32px;
   }
 
   .mobile-toc {
@@ -349,10 +333,13 @@ select:focus-visible {
   }
 
   .site-hero {
-    padding-block: 40px 32px;
+    padding-block: 28px 24px;
   }
 
-  .site-hero h1,
+  .site-hero h1 {
+    font-size: 30px;
+  }
+
   .docs-intro h1 {
     font-size: 36px;
   }
