@@ -1,7 +1,22 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
+    <style>
+      html { background: #191d24; color: #f1f3f5; color-scheme: dark; }
+      html[data-theme="light"] { background: #fafbfc; color: #20252d; color-scheme: light; }
+    </style>
+    <script>
+      (() => {
+        let theme = 'dark';
+        try {
+          if (localStorage.getItem('billie-coop-theme') === 'light') theme = 'light';
+        } catch {}
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.classList.toggle('dark', theme === 'dark');
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>seaq — zero-dependency fuzzy search</title>

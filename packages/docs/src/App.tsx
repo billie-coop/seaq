@@ -156,33 +156,77 @@ function useHashView(): View {
   return hash.startsWith('#reference') ? 'reference' : 'playground';
 }
 
-function NavBar({ view }: { view: View }) {
-  const tabClass = (active: boolean) =>
-    `rounded-md px-3 py-1.5 text-sm font-medium ${
-      active
-        ? 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white'
-        : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
-    }`;
+function ThemeSwitch() {
+  const [theme, setTheme] = useState(() =>
+    document.documentElement.dataset.theme === 'light' ? 'light' : 'dark',
+  );
+  const nextTheme = theme === 'dark' ? 'light' : 'dark';
+
+  function toggleTheme() {
+    document.documentElement.dataset.theme = nextTheme;
+    document.documentElement.classList.toggle('dark', nextTheme === 'dark');
+    document.documentElement.style.colorScheme = nextTheme;
+    setTheme(nextTheme);
+    try {
+      localStorage.setItem('billie-coop-theme', nextTheme);
+    } catch {
+      // The switch still works when browser storage is unavailable.
+    }
+  }
+
   return (
-    <nav className="sticky top-0 z-10 mb-6 flex items-center gap-2 border-b border-gray-200 bg-white/90 py-3 backdrop-blur dark:border-gray-800 dark:bg-gray-900/90">
-      <a href="#playground" className="mr-2 text-lg font-bold text-gray-900 dark:text-white">
-        seaq
-      </a>
-      <a href="#playground" className={tabClass(view === 'playground')}>
-        Playground
-      </a>
-      <a href="#reference" className={tabClass(view === 'reference')}>
-        Reference
-      </a>
-      <a
-        href="https://github.com/billie-coop/seaq"
-        target="_blank"
-        rel="noreferrer"
-        className="ml-auto text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
-      >
-        GitHub ↗
-      </a>
-    </nav>
+    <button
+      type="button"
+      className="theme-switch"
+      onClick={toggleTheme}
+      aria-label={`Switch to ${nextTheme} mode`}
+      title={`Switch to ${nextTheme} mode`}
+    >
+      {nextTheme === 'light' ? 'Light' : 'Dark'}
+    </button>
+  );
+}
+
+function NavBar({ view }: { view: View }) {
+  return (
+    <header className="site-header">
+      <div className="site-container header-inner">
+        <a href="#playground" className="site-brand">
+          <strong>seaq</strong>
+          <span>by Billie co-op</span>
+        </a>
+        <nav className="site-nav" aria-label="Main navigation">
+          <a href="#playground" aria-current={view === 'playground' ? 'page' : undefined}>
+            Overview
+          </a>
+          <a href="#reference" aria-current={view === 'reference' ? 'page' : undefined}>
+            Docs
+          </a>
+          <a href="https://github.com/billie-coop/seaq">GitHub ↗</a>
+          <ThemeSwitch />
+        </nav>
+      </div>
+    </header>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="site-footer">
+      <div className="site-container footer-inner">
+        <p>
+          Made at <a href="https://github.com/billie-coop">Billie co-op</a> ·{' '}
+          <a href="https://github.com/billie-coop/seaq/blob/main/LICENSE">MIT</a>
+        </p>
+        <nav aria-label="More from Billie co-op">
+          <a href="https://billie-coop.github.io/seaq/" aria-current="true">
+            seaq
+          </a>
+          <a href="https://billie-coop.github.io/serenity-now/">serenity-now</a>
+          <a href="https://billie-coop.github.io/hereabouts/">hereabouts</a>
+        </nav>
+      </div>
+    </footer>
   );
 }
 
@@ -263,6 +307,12 @@ export function App() {
     setSelectedKeys([]);
   }, [rawDs.data]);
 
+  useEffect(() => {
+    document.title =
+      view === 'reference' ? 'seaq docs — Billie co-op' : 'seaq — zero-dependency fuzzy search';
+    if (!window.location.hash.startsWith('#reference/')) window.scrollTo(0, 0);
+  }, [view]);
+
   const updateConfig = useCallback(
     <K extends EngineKey>(engine: K, patch: Partial<EngineConfigs[K]>) => {
       setConfigs((prev) => ({
@@ -306,98 +356,112 @@ export function App() {
   }, [query, ds, configs, isActive]);
 
   return (
-    <div className="mx-auto min-h-screen max-w-[120rem] bg-white px-4 pb-8 sm:px-6 dark:bg-gray-900">
+    <div className="site-shell">
+      <button
+        type="button"
+        className="skip-link"
+        onClick={() => {
+          document.getElementById('main-content')?.focus();
+        }}
+      >
+        Skip to content
+      </button>
       <NavBar view={view} />
 
-      {view === 'reference' && <Reference />}
+      <main id="main-content" tabIndex={-1}>
+        {view === 'reference' && <Reference />}
 
-      {/* The playground stays mounted while reading the reference so query,
+        {/* The playground stays mounted while reading the reference so query,
           custom data, and engine configs survive tab switches */}
-      <div className={view === 'playground' ? undefined : 'hidden'}>
-        <Hero />
+        <div className={view === 'playground' ? undefined : 'hidden'}>
+          <Hero />
 
-        <div className="mb-6 space-y-4">
-          <SearchInput value={query} onChange={setQuery} />
-          <DatasetPicker
-            selected={dataset}
-            onChange={setDataset}
-            customLabel={customDs?.label ?? null}
-          />
-          {dataset === 'custom' && (
-            <CustomDataPanel
-              current={customDs}
-              onLoad={setCustomDs}
-              onClear={() => setCustomDs(null)}
-            />
-          )}
-          {allPaths.length > 0 && (
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-xs font-medium text-gray-700 dark:text-gray-200">
-                Search fields:
-              </span>
-              {allPaths.map((k) => (
-                <label
-                  key={k}
-                  className="flex items-center gap-1 text-xs text-gray-800 dark:text-gray-200"
-                >
-                  <input
-                    type="checkbox"
-                    className="rounded border-gray-300 dark:border-gray-600"
-                    checked={effectiveKeys.includes(k)}
-                    onChange={(e) => {
-                      const current = selectedKeys.length > 0 ? selectedKeys : [...rawDs.keys];
-                      const next = e.target.checked
-                        ? [...current, k].filter((v, i, a) => a.indexOf(v) === i)
-                        : current.filter((v) => v !== k);
-                      setSelectedKeys(next);
-                    }}
-                  />
-                  <span>
-                    {k}
-                    {rawDs.keys.includes(k) && (
-                      <span className="ml-0.5 text-[10px] text-gray-500 dark:text-gray-400">
-                        (default)
-                      </span>
-                    )}
+          <section className="playground-container" aria-label="Live search playground">
+            <div className="mb-6 space-y-4">
+              <SearchInput value={query} onChange={setQuery} />
+              <DatasetPicker
+                selected={dataset}
+                onChange={setDataset}
+                customLabel={customDs?.label ?? null}
+              />
+              {dataset === 'custom' && (
+                <CustomDataPanel
+                  current={customDs}
+                  onLoad={setCustomDs}
+                  onClear={() => setCustomDs(null)}
+                />
+              )}
+              {allPaths.length > 0 && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-xs font-medium text-gray-700 dark:text-gray-200">
+                    Search fields:
                   </span>
-                </label>
+                  {allPaths.map((k) => (
+                    <label
+                      key={k}
+                      className="flex items-center gap-1 text-xs text-gray-800 dark:text-gray-200"
+                    >
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300 dark:border-gray-600"
+                        checked={effectiveKeys.includes(k)}
+                        onChange={(e) => {
+                          const current = selectedKeys.length > 0 ? selectedKeys : [...rawDs.keys];
+                          const next = e.target.checked
+                            ? [...current, k].filter((v, i, a) => a.indexOf(v) === i)
+                            : current.filter((v) => v !== k);
+                          setSelectedKeys(next);
+                        }}
+                      />
+                      <span>
+                        {k}
+                        {rawDs.keys.includes(k) && (
+                          <span className="ml-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                            (default)
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {ds.data.length > 0 && (
+                <details className="rounded-md border border-gray-200 bg-gray-900 dark:border-gray-700">
+                  <summary className="cursor-pointer select-none px-4 py-2 text-xs text-gray-400 hover:text-gray-300">
+                    <span className="font-medium">Sample entry</span>
+                    {ds.keys.length > 0 && (
+                      <span className="ml-2 text-gray-500">keys: [{ds.keys.join(', ')}]</span>
+                    )}
+                  </summary>
+                  <pre className="overflow-x-auto whitespace-pre border-t border-gray-800 px-4 py-3 text-xs leading-relaxed text-gray-100">
+                    <code>{JSON.stringify(ds.data[0], null, 2)}</code>
+                  </pre>
+                </details>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
+              {engineOrder.map((engine) => (
+                <ResultsColumn
+                  key={engine}
+                  engineKey={engine}
+                  name={engineNames[engine]}
+                  query={query}
+                  keys={ds.keys}
+                  arrayKeyMap={arrayKeyMap}
+                  result={results[engine]}
+                  config={configs[engine]}
+                  onConfigChange={(patch) => updateConfig(engine, patch)}
+                  toggle={toggles[engine]}
+                  onToggle={(patch) => setToggle(engine, patch)}
+                  active={isActive(engine)}
+                />
               ))}
             </div>
-          )}
-          {ds.data.length > 0 && (
-            <details className="rounded-md border border-gray-200 bg-gray-900 dark:border-gray-700">
-              <summary className="cursor-pointer select-none px-4 py-2 text-xs text-gray-400 hover:text-gray-300">
-                <span className="font-medium">Sample entry</span>
-                {ds.keys.length > 0 && (
-                  <span className="ml-2 text-gray-500">keys: [{ds.keys.join(', ')}]</span>
-                )}
-              </summary>
-              <pre className="overflow-x-auto whitespace-pre border-t border-gray-800 px-4 py-3 text-xs leading-relaxed text-gray-100">
-                <code>{JSON.stringify(ds.data[0], null, 2)}</code>
-              </pre>
-            </details>
-          )}
+          </section>
         </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
-          {engineOrder.map((engine) => (
-            <ResultsColumn
-              key={engine}
-              engineKey={engine}
-              name={engineNames[engine]}
-              query={query}
-              keys={ds.keys}
-              arrayKeyMap={arrayKeyMap}
-              result={results[engine]}
-              config={configs[engine]}
-              onConfigChange={(patch) => updateConfig(engine, patch)}
-              toggle={toggles[engine]}
-              onToggle={(patch) => setToggle(engine, patch)}
-              active={isActive(engine)}
-            />
-          ))}
-        </div>
-      </div>
+      </main>
+      <Footer />
     </div>
   );
 }
